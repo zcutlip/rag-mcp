@@ -20,5 +20,11 @@ def get_embeddings(texts: list[str]) -> list[list[float]]:
     host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
     model = os.environ.get("OLLAMA_MODEL", "nomic-embed-text")
 
-    response: Any = ollama.embed(model=model, input=texts, host=host)
+    try:
+        response: Any = ollama.embed(model=model, input=texts, host=host)
+    except TypeError:
+        # ollama >= 0.4 doesn't accept host as a kwarg on embed();
+        # configure it via the Client constructor instead.
+        client = ollama.Client(host=host)
+        response = client.embed(model=model, input=texts)
     return response.embeddings
