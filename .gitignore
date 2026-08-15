@@ -7,3 +7,7 @@ dist/
 build/
 chroma_data/
 .pytest_cache/
+
+
+# opencode
+.opencode/index
