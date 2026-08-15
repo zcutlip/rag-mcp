@@ -54,3 +54,35 @@ class VectorStore:
 
     def delete_collection(self, name: str) -> None:
         self._client.delete_collection(name)
+
+    def get_all_metadata(self, collection: str) -> dict[str, Any]:
+        coll = self.get_or_create_collection(collection)
+        result = coll.get(include=["metadatas"])
+        return {"ids": result["ids"], "metadatas": result["metadatas"]}
+
+    def upsert(
+        self,
+        collection: str,
+        documents: list[str],
+        embeddings: list[list[float]],
+        ids: list[str],
+        metadatas: list[dict[str, Any]] | None = None,
+    ) -> None:
+        if len(ids) != len(documents):
+            raise ValueError("ids must have the same length as documents")
+        if metadatas is not None and len(metadatas) != len(documents):
+            raise ValueError("metadatas must have the same length as documents")
+
+        coll = self.get_or_create_collection(collection)
+        coll.upsert(
+            ids=ids,
+            embeddings=embeddings,
+            documents=documents,
+            metadatas=metadatas,
+        )
+
+    def delete_ids(self, collection: str, ids: list[str]) -> None:
+        if not ids:
+            return
+        coll = self.get_or_create_collection(collection)
+        coll.delete(ids=ids)

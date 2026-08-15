@@ -4,6 +4,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+import rag_mcp.ingest as ingest
 from rag_mcp.embeddings import get_embeddings
 from rag_mcp.store import VectorStore
 
@@ -81,8 +82,22 @@ def delete_collection(collection: str = "default") -> str:
     return f"Deleted collection '{collection}'."
 
 
+@mcp.tool()
+def sync_directory(directory: str, collection: str = "default") -> str:
+    """Sync a directory of markdown files into a collection (adds new/changed files, removes deleted ones)."""
+    result = ingest.sync_directory(store, directory, collection=collection)
+    return (
+        f"Synced '{directory}' into collection '{collection}': "
+        f"{result['added']} added, {result['updated']} updated, "
+        f"{result['deleted']} deleted, {result['unchanged']} unchanged."
+    )
+
+
 def main() -> None:
     """Run the MCP server using stdio transport."""
+    ingest_dir = os.environ.get("RAG_INGEST_DIR")
+    if ingest_dir:
+        ingest.sync_directory(store, ingest_dir, collection=os.environ.get("RAG_INGEST_COLLECTION", "default"))
     mcp.run()
 
 
