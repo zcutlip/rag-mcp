@@ -33,6 +33,8 @@ This makes the `rag-mcp` command available globally in an isolated virtual envir
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama API endpoint |
 | `OLLAMA_MODEL` | `nomic-embed-text` | Embedding model name |
 | `CHROMA_PERSIST_DIR` | `./chroma_data` | ChromaDB persistence directory |
+| `RAG_INGEST_DIR` | unset (skip startup sync) | Directory of markdown files to auto-sync on server startup |
+| `RAG_INGEST_COLLECTION` | `default` | Collection to sync `RAG_INGEST_DIR` into |
 
 ## MCP Client Configuration
 
@@ -79,6 +81,14 @@ Delete a collection and all its documents.
 
 **Parameters:**
 - `collection` (str, default `"default"`) — collection to delete
+
+### `sync_directory`
+
+Incrementally sync a directory of markdown files into a collection. Safe to call repeatedly: new and changed files are chunked and (re-)embedded, unchanged files are skipped, and files removed from disk have their chunks removed from the collection. Setting `RAG_INGEST_DIR` also runs this automatically on server startup.
+
+**Parameters:**
+- `directory` (str) — path to the directory of `.md`/`.markdown` files to sync
+- `collection` (str, default `"default"`) — target collection name
 
 ## Development
 
