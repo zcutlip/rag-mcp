@@ -7,12 +7,12 @@ MCP server exposing RAG (Retrieval-Augmented Generation) tools for ingesting doc
 ## Architecture & Data Flow
 
 ```
-Client (MCP) → server.py (FastMCP) → get_embeddings() → Ollama API
+Client (MCP) → server.py (MCPServer) → get_embeddings() → Ollama API
                                     → VectorStore → ChromaDB
 ```
 
 **Module responsibilities:**
-- `server.py`: FastMCP entry point, defines 5 tools (add_documents, query_documents, list_collections, delete_collection, sync_directory), creates module-level FastMCP and VectorStore instances
+- `server.py`: MCPServer entry point, defines 5 tools (add_documents, query_documents, list_collections, delete_collection, sync_directory), creates module-level MCPServer and VectorStore instances
 - `embeddings.py`: Ollama embedding client, single `get_embeddings()` function with compatibility shim for SDK >=0.4
 - `store.py`: ChromaDB wrapper class `VectorStore` with add/query/upsert/get_all_metadata/delete_ids/list_collections/delete_collection operations
 - `ingest.py`: directory-to-vector-store sync (`iter_markdown_files`, `chunk_text`, `file_hash`, `sync_directory`). The one module that composes the other two — takes a `VectorStore` instance as a parameter (never a global) so it stays unit-testable
@@ -33,7 +33,7 @@ No dependency injection framework — direct instantiation with environment vari
 
 ```
 src/rag_mcp/          # Source modules (src-layout)
-  server.py           # FastMCP server and tool definitions
+  server.py           # MCPServer server and tool definitions
   embeddings.py       # Ollama embedding client
   store.py            # ChromaDB vector store wrapper
   ingest.py           # Markdown directory sync
@@ -85,7 +85,7 @@ Read via `os.environ.get()` with defaults at point of use.
 - Empty inputs handled with early returns (e.g., `get_embeddings([])` returns `[]`)
 
 **Module-level state:**
-- `server.py` creates module-level `mcp = FastMCP("rag-mcp")` and `store = VectorStore(...)` instances
+- `server.py` creates module-level `mcp = MCPServer("rag-mcp")` and `store = VectorStore(...)` instances
 - Tools are decorated with `@mcp.tool()` and reference the module-level `store`
 - No global mutable state beyond the server and store singletons
 - Auto-ingest (`RAG_INGEST_DIR`) runs inside `main()`, not at module level — module-level execution would fire on every `import rag_mcp.server`, including test imports, silently hitting the filesystem and Ollama during `pytest`
@@ -117,7 +117,7 @@ Read via `os.environ.get()` with defaults at point of use.
 - `.pre-commit-config.yaml` — Lint/format hooks (flake8, autopep8, isort, pyupgrade, shellcheck)
 
 **Key modules:**
-- `src/rag_mcp/server.py` — FastMCP server, 5 tool definitions, module-level store instance
+- `src/rag_mcp/server.py` — MCPServer server, 5 tool definitions, module-level store instance
 - `src/rag_mcp/embeddings.py` — `get_embeddings()` with Ollama SDK compatibility shim
 - `src/rag_mcp/store.py` — `VectorStore` class wrapping `chromadb.PersistentClient`
 - `src/rag_mcp/ingest.py` — `sync_directory()` with deterministic chunk IDs and hash-based incremental re-sync
