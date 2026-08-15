@@ -2,13 +2,13 @@
 import os
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 import rag_mcp.ingest as ingest
 from rag_mcp.embeddings import get_embeddings
 from rag_mcp.store import VectorStore
 
-mcp = FastMCP("rag-mcp")
+mcp = MCPServer("rag-mcp")
 store = VectorStore(persist_dir=os.environ.get("CHROMA_PERSIST_DIR", "./chroma_data"))
 
 
