@@ -43,6 +43,8 @@ def add_documents(
 @mcp.tool()
 def query_documents(query: str, n_results: int = 5, collection: str = "default") -> str:
     """Retrieve the most relevant document chunks for a query."""
+    if n_results < 1:
+        raise ValueError("n_results must be >= 1")
     query_embedding = get_embeddings([query])[0]
     results = store.query(
         collection=collection,
@@ -79,13 +81,18 @@ def list_collections() -> list[str]:
 @mcp.tool()
 def delete_collection(collection: str = "default") -> str:
     """Delete a collection from the vector store."""
+    if collection not in store.list_collections():
+        raise ValueError(f"Collection '{collection}' does not exist.")
     store.delete_collection(collection)
     return f"Deleted collection '{collection}'."
 
 
 @mcp.tool()
 def sync_directory(directory: str, collection: str = "default") -> str:
-    """Sync a directory of markdown files into a collection (adds new/changed files, removes deleted ones)."""
+    """Sync a directory of markdown files into a collection.
+
+    Adds new/changed files, removes deleted ones.
+    """
     result = ingest.sync_directory(store, directory, collection=collection)
     return (
         f"Synced '{directory}' into collection '{collection}': "
