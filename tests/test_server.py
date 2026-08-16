@@ -1,13 +1,22 @@
 """Tests for rag_mcp.server MCP tools."""
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 
-@patch("rag_mcp.server.store")
+def _test_config():
+    """A config stub for tools that fetch host/model."""
+    return MagicMock(ollama_host="http://localhost:11434", ollama_model="nomic-embed-text")
+
+
+@patch("rag_mcp.server.get_config")
 @patch("rag_mcp.server.get_embeddings")
-def test_add_documents_tool(mock_get_embeddings, mock_store):
+@patch("rag_mcp.server.get_store")
+def test_add_documents_tool(mock_get_store, mock_get_embeddings, mock_get_config):
     """add_documents returns confirmation string with count."""
+    mock_get_config.return_value = _test_config()
+    mock_store = MagicMock()
+    mock_get_store.return_value = mock_store
     mock_get_embeddings.return_value = [[0.1, 0.2], [0.3, 0.4]]
 
     from rag_mcp.server import add_documents
@@ -21,10 +30,14 @@ def test_add_documents_tool(mock_get_embeddings, mock_store):
     mock_store.add.assert_called_once()
 
 
-@patch("rag_mcp.server.store")
+@patch("rag_mcp.server.get_config")
 @patch("rag_mcp.server.get_embeddings")
-def test_query_documents_tool(mock_get_embeddings, mock_store):
+@patch("rag_mcp.server.get_store")
+def test_query_documents_tool(mock_get_store, mock_get_embeddings, mock_get_config):
     """query_documents returns formatted results with document text and IDs."""
+    mock_get_config.return_value = _test_config()
+    mock_store = MagicMock()
+    mock_get_store.return_value = mock_store
     mock_get_embeddings.return_value = [[0.1, 0.2]]
     mock_store.query.return_value = {
         "documents": [["# Heading\nContent one."]],
@@ -40,10 +53,14 @@ def test_query_documents_tool(mock_get_embeddings, mock_store):
     assert "doc1" in result
 
 
-@patch("rag_mcp.server.store")
+@patch("rag_mcp.server.get_config")
 @patch("rag_mcp.server.get_embeddings")
-def test_query_documents_no_results(mock_get_embeddings, mock_store):
+@patch("rag_mcp.server.get_store")
+def test_query_documents_no_results(mock_get_store, mock_get_embeddings, mock_get_config):
     """query_documents returns 'No matching documents found.' for empty results."""
+    mock_get_config.return_value = _test_config()
+    mock_store = MagicMock()
+    mock_get_store.return_value = mock_store
     mock_get_embeddings.return_value = [[0.1, 0.2]]
     mock_store.query.return_value = {
         "documents": [[]],
@@ -58,9 +75,11 @@ def test_query_documents_no_results(mock_get_embeddings, mock_store):
     assert result == "No matching documents found."
 
 
-@patch("rag_mcp.server.store")
-def test_list_collections_tool(mock_store):
+@patch("rag_mcp.server.get_store")
+def test_list_collections_tool(mock_get_store):
     """list_collections returns collection names."""
+    mock_store = MagicMock()
+    mock_get_store.return_value = mock_store
     mock_store.list_collections.return_value = ["default", "other"]
 
     from rag_mcp.server import list_collections
@@ -69,9 +88,11 @@ def test_list_collections_tool(mock_store):
     assert "default" in result
 
 
-@patch("rag_mcp.server.store")
-def test_delete_collection_tool(mock_store):
+@patch("rag_mcp.server.get_store")
+def test_delete_collection_tool(mock_get_store):
     """delete_collection returns confirmation string."""
+    mock_store = MagicMock()
+    mock_get_store.return_value = mock_store
     mock_store.list_collections.return_value = ["default"]
 
     from rag_mcp.server import delete_collection
@@ -81,9 +102,10 @@ def test_delete_collection_tool(mock_store):
     mock_store.delete_collection.assert_called_once_with("default")
 
 
-@patch("rag_mcp.server.store")
+@patch("rag_mcp.server.get_config")
 @patch("rag_mcp.server.get_embeddings")
-def test_add_documents_empty(mock_get_embeddings, mock_store):
+@patch("rag_mcp.server.get_store")
+def test_add_documents_empty(mock_get_store, mock_get_embeddings, mock_get_config):
     """add_documents([]) returns confirmation without calling get_embeddings."""
     from rag_mcp.server import add_documents
 
@@ -92,9 +114,10 @@ def test_add_documents_empty(mock_get_embeddings, mock_store):
     mock_get_embeddings.assert_not_called()
 
 
-@patch("rag_mcp.server.store")
+@patch("rag_mcp.server.get_config")
 @patch("rag_mcp.server.get_embeddings")
-def test_add_documents_validation(mock_get_embeddings, mock_store):
+@patch("rag_mcp.server.get_store")
+def test_add_documents_validation(mock_get_store, mock_get_embeddings, mock_get_config):
     """Mismatched ids and documents raise ValueError."""
     from rag_mcp.server import add_documents
 
@@ -103,21 +126,24 @@ def test_add_documents_validation(mock_get_embeddings, mock_store):
     mock_get_embeddings.assert_not_called()
 
 
-@patch("rag_mcp.server.store")
+@patch("rag_mcp.server.get_config")
 @patch("rag_mcp.server.get_embeddings")
-def test_query_documents_validation(mock_get_embeddings, mock_store):
+@patch("rag_mcp.server.get_store")
+def test_query_documents_validation(mock_get_store, mock_get_embeddings, mock_get_config):
     """query_documents rejects n_results < 1 without calling embeddings/store."""
     from rag_mcp.server import query_documents
 
     with pytest.raises(ValueError):
         query_documents(query="x", n_results=0)
     mock_get_embeddings.assert_not_called()
-    mock_store.query.assert_not_called()
+    mock_get_store.assert_not_called()
 
 
-@patch("rag_mcp.server.store")
-def test_delete_collection_missing(mock_store):
+@patch("rag_mcp.server.get_store")
+def test_delete_collection_missing(mock_get_store):
     """Deleting a nonexistent collection raises ValueError."""
+    mock_store = MagicMock()
+    mock_get_store.return_value = mock_store
     mock_store.list_collections.return_value = ["default"]
 
     from rag_mcp.server import delete_collection
