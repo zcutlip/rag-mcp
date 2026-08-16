@@ -99,3 +99,27 @@ def test_add_documents_validation(mock_get_embeddings, mock_store):
     with pytest.raises(ValueError):
         add_documents(documents=["doc1", "doc2"], ids=["id1"])
     mock_get_embeddings.assert_not_called()
+
+
+@patch("rag_mcp.server.store")
+@patch("rag_mcp.server.get_embeddings")
+def test_query_documents_validation(mock_get_embeddings, mock_store):
+    """query_documents rejects n_results < 1 without calling embeddings/store."""
+    from rag_mcp.server import query_documents
+
+    with pytest.raises(ValueError):
+        query_documents(query="x", n_results=0)
+    mock_get_embeddings.assert_not_called()
+    mock_store.query.assert_not_called()
+
+
+@patch("rag_mcp.server.store")
+def test_delete_collection_missing(mock_store):
+    """Deleting a nonexistent collection raises ValueError."""
+    mock_store.list_collections.return_value = ["default"]
+
+    from rag_mcp.server import delete_collection
+
+    with pytest.raises(ValueError):
+        delete_collection(collection="missing")
+    mock_store.delete_collection.assert_not_called()
