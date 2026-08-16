@@ -71,7 +71,6 @@ dependencies = [
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -95,6 +94,8 @@ Homepage = "https://github.com/zcutlip/rag-mcp"
 Repository = "https://github.com/zcutlip/rag-mcp"
 Issues = "https://github.com/zcutlip/rag-mcp/issues"
 ```
+
+Note: omit the `License :: OSI Approved :: MIT License` classifier — setuptools>=77 (PEP 639) rejects it when `license = "MIT"` is present (`InvalidConfigError`).
 
 Add the version single-source wiring:
 
@@ -200,10 +201,11 @@ jobs:
       - run: python -m build
 ```
 
-### 8. `.pre-commit-config.yaml`
+### 8. `.pre-commit-config.yaml` + `setup.cfg`
 
 - Keep `pyupgrade --py312-plus` (now correct, since the floor is 3.12).
 - Remove the `ci: autoupdate_branch: 'development'` block (that branch does not exist).
+- Add `setup.cfg` setting `max-line-length = 100` under both `[flake8]` and `[pycodestyle]` — the repo ships no line-length config, so flake8's 79-char default trips on the existing code; 100 aligns flake8 and autopep8 with the existing style.
 
 ### 9. `.gitignore`
 
