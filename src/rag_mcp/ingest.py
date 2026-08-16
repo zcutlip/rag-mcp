@@ -35,7 +35,9 @@ def file_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def sync_directory(store: VectorStore, directory: str, collection: str = "default") -> dict[str, int]:
+def sync_directory(
+    store: VectorStore, directory: str, collection: str = "default"
+) -> dict[str, int]:
     """Incrementally sync markdown files under `directory` into `collection`.
 
     New/changed files are chunked, embedded, and upserted. Unchanged files
