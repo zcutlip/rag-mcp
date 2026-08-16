@@ -35,15 +35,37 @@ source .venv/bin/activate       # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 ```
 
-## Environment Variables
+## Configuration
+
+Configuration is loaded from a TOML config file with `RAG_MCP_*` environment variables as overrides. Precedence: defaults < config file < environment variables.
+
+### Config file
+
+The default config path is your platform's config directory (e.g. `~/.config/rag-mcp/config.toml` on Linux, `~/Library/Application Support/rag-mcp/config.toml` on macOS). Point `RAG_MCP_CONFIG` at a specific file to override it.
+
+```toml
+[ollama]
+host = "http://localhost:11434"
+model = "nomic-embed-text"
+
+[chroma]
+persist_dir = ""            # empty → platform user-data default
+
+[ingest]
+directory = "~/notes"       # optional; must exist if set
+collection = "default"
+```
+
+### Environment variables
 
 | Variable | Default | Description |
 |---|---|---|
-| `OLLAMA_HOST` | `http://localhost:11434` | Ollama API endpoint |
-| `OLLAMA_MODEL` | `nomic-embed-text` | Embedding model name |
-| `CHROMA_PERSIST_DIR` | platform user-data dir | ChromaDB persistence directory override |
-| `RAG_INGEST_DIR` | unset (skip startup sync) | Directory of markdown files to auto-sync on server startup |
-| `RAG_INGEST_COLLECTION` | `default` | Collection to sync `RAG_INGEST_DIR` into |
+| `RAG_MCP_CONFIG` | platform config dir | Explicit config file path |
+| `RAG_MCP_OLLAMA_HOST` | `http://localhost:11434` | Ollama API endpoint |
+| `RAG_MCP_OLLAMA_MODEL` | `nomic-embed-text` | Embedding model name |
+| `RAG_MCP_CHROMA_PERSIST_DIR` | platform user-data dir | ChromaDB persistence directory override |
+| `RAG_MCP_INGEST_DIR` | unset (skip startup sync) | Directory of markdown files to auto-sync on server startup |
+| `RAG_MCP_INGEST_COLLECTION` | `default` | Collection to sync `RAG_MCP_INGEST_DIR` into |
 
 ## State Location
 
@@ -55,7 +77,7 @@ By default, ChromaDB data is stored in your platform's user-data directory:
 | Linux | `~/.local/share/rag-mcp/chroma_data` |
 | Windows | `%LOCALAPPDATA%\rag-mcp\chroma_data` |
 
-Set `CHROMA_PERSIST_DIR` to override this (supports `~` expansion).
+Set `RAG_MCP_CHROMA_PERSIST_DIR` to override this (supports `~` expansion).
 
 ## MCP Client Configuration
 
@@ -105,7 +127,7 @@ Delete a collection and all its documents.
 
 ### `sync_directory`
 
-Incrementally sync a directory of markdown files into a collection. Safe to call repeatedly: new and changed files are chunked and (re-)embedded, unchanged files are skipped, and files removed from disk have their chunks removed from the collection. Setting `RAG_INGEST_DIR` also runs this automatically on server startup.
+Incrementally sync a directory of markdown files into a collection. Safe to call repeatedly: new and changed files are chunked and (re-)embedded, unchanged files are skipped, and files removed from disk have their chunks removed from the collection. Setting `RAG_MCP_INGEST_DIR` (or `[ingest] directory` in the config file) also runs this automatically on server startup.
 
 **Parameters:**
 - `directory` (str) — path to the directory of `.md`/`.markdown` files to sync
