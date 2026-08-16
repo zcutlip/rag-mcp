@@ -5,11 +5,12 @@ from typing import Any
 from mcp.server.mcpserver import MCPServer
 
 import rag_mcp.ingest as ingest
+from rag_mcp.config import get_ingest_dir, get_persist_dir
 from rag_mcp.embeddings import get_embeddings
 from rag_mcp.store import VectorStore
 
 mcp = MCPServer("rag-mcp")
-store = VectorStore(persist_dir=os.environ.get("CHROMA_PERSIST_DIR", "./chroma_data"))
+store = VectorStore(persist_dir=get_persist_dir())
 
 
 @mcp.tool()
@@ -95,9 +96,13 @@ def sync_directory(directory: str, collection: str = "default") -> str:
 
 def main() -> None:
     """Run the MCP server using stdio transport."""
-    ingest_dir = os.environ.get("RAG_INGEST_DIR")
+    ingest_dir = get_ingest_dir()
     if ingest_dir:
-        ingest.sync_directory(store, ingest_dir, collection=os.environ.get("RAG_INGEST_COLLECTION", "default"))
+        ingest.sync_directory(
+            store,
+            ingest_dir,
+            collection=os.environ.get("RAG_INGEST_COLLECTION", "default"),
+        )
     mcp.run()
 
 
