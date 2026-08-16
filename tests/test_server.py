@@ -1,5 +1,5 @@
 """Tests for rag_mcp.server MCP tools."""
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 

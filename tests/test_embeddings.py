@@ -1,5 +1,5 @@
 """Tests for rag_mcp.embeddings module."""
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from rag_mcp.embeddings import get_embeddings
 
