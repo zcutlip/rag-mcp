@@ -43,6 +43,8 @@ tests/                # Test suite (flat structure, no classes)
   test_embeddings.py  # 3 tests for embedding client
   test_store.py       # 5 tests for vector store
   test_ingest.py      # 6 tests for directory sync
+docs/                 # Current specs
+docs/archive/         # Completed/superseded specs, named YYYY-MM-DD-<topic>-spec.md
 ```
 
 ## Development Commands
