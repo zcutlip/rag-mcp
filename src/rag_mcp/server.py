@@ -1,16 +1,22 @@
 """MCP server exposing RAG tools backed by Ollama embeddings and ChromaDB."""
-import os
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 
 import rag_mcp.ingest as ingest
-from rag_mcp.config import get_ingest_dir, get_persist_dir
+from rag_mcp.config import get_config
 from rag_mcp.embeddings import get_embeddings
 from rag_mcp.store import VectorStore
 
 mcp = MCPServer("rag-mcp")
-store = VectorStore(persist_dir=get_persist_dir())
+store: VectorStore | None = None
+
+
+def get_store() -> VectorStore:
+    """Return the initialized store, raising if ``main()`` has not run yet."""
+    if store is None:
+        raise RuntimeError("store not initialized")
+    return store
 
 
 @mcp.tool()
@@ -29,8 +35,9 @@ def add_documents(
     if metadatas is not None and len(metadatas) != len(documents):
         raise ValueError("metadatas must have the same length as documents")
 
-    embeddings = get_embeddings(documents)
-    store.add(
+    cfg = get_config()
+    embeddings = get_embeddings(documents, cfg.ollama_host, cfg.ollama_model)
+    get_store().add(
         collection=collection,
         documents=documents,
         embeddings=embeddings,
@@ -45,8 +52,10 @@ def query_documents(query: str, n_results: int = 5, collection: str = "default")
     """Retrieve the most relevant document chunks for a query."""
     if n_results < 1:
         raise ValueError("n_results must be >= 1")
-    query_embedding = get_embeddings([query])[0]
-    results = store.query(
+
+    cfg = get_config()
+    query_embedding = get_embeddings([query], cfg.ollama_host, cfg.ollama_model)[0]
+    results = get_store().query(
         collection=collection,
         query_embedding=query_embedding,
         n_results=n_results,
@@ -75,15 +84,16 @@ def query_documents(query: str, n_results: int = 5, collection: str = "default")
 @mcp.tool()
 def list_collections() -> list[str]:
     """List all collection names in the vector store."""
-    return store.list_collections()
+    return get_store().list_collections()
 
 
 @mcp.tool()
 def delete_collection(collection: str = "default") -> str:
     """Delete a collection from the vector store."""
-    if collection not in store.list_collections():
+    s = get_store()
+    if collection not in s.list_collections():
         raise ValueError(f"Collection '{collection}' does not exist.")
-    store.delete_collection(collection)
+    s.delete_collection(collection)
     return f"Deleted collection '{collection}'."
 
 
@@ -93,7 +103,7 @@ def sync_directory(directory: str, collection: str = "default") -> str:
 
     Adds new/changed files, removes deleted ones.
     """
-    result = ingest.sync_directory(store, directory, collection=collection)
+    result = ingest.sync_directory(get_store(), directory, collection=collection)
     return (
         f"Synced '{directory}' into collection '{collection}': "
         f"{result['added']} added, {result['updated']} updated, "
@@ -103,12 +113,12 @@ def sync_directory(directory: str, collection: str = "default") -> str:
 
 def main() -> None:
     """Run the MCP server using stdio transport."""
-    ingest_dir = get_ingest_dir()
-    if ingest_dir:
+    global store
+    config = get_config()
+    store = VectorStore(persist_dir=config.chroma_persist_dir)
+    if config.ingest_dir:
         ingest.sync_directory(
-            store,
-            ingest_dir,
-            collection=os.environ.get("RAG_INGEST_COLLECTION", "default"),
+            store, config.ingest_dir, collection=config.ingest_collection
         )
     mcp.run()
 
