@@ -1,14 +1,31 @@
 # rag-mcp
 
+[![CI](https://github.com/zcutlip/rag-mcp/workflows/CI/badge.svg)](https://github.com/zcutlip/rag-mcp/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 An MCP server that exposes tools for ingesting document chunks and retrieving relevant context for RAG (Retrieval-Augmented Generation). Embeddings are generated via a local [Ollama](https://ollama.com) instance, and vectors are persisted in [ChromaDB](https://www.trychroma.com/).
 
 ## Prerequisites
 
-- Python >= 3.10
+- Python >= 3.12
 - [Ollama](https://ollama.com) running locally
 - The embedding model pulled: `ollama pull nomic-embed-text`
 
 ## Installation
+
+### End-user (pipx)
+
+```bash
+pipx install git+https://github.com/zcutlip/rag-mcp.git
+```
+
+This installs `rag-mcp` into an isolated virtual environment and makes the command available globally. If you don't use pipx:
+
+```bash
+pip install git+https://github.com/zcutlip/rag-mcp.git
+```
+
+Once the package is published to PyPI, it can be installed directly with `pipx install rag-mcp`.
 
 ### Development
 
@@ -18,23 +35,27 @@ source .venv/bin/activate       # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 ```
 
-### End-user (pipx)
-
-```bash
-pipx install .
-```
-
-This makes the `rag-mcp` command available globally in an isolated virtual environment.
-
 ## Environment Variables
 
 | Variable | Default | Description |
 |---|---|---|
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama API endpoint |
 | `OLLAMA_MODEL` | `nomic-embed-text` | Embedding model name |
-| `CHROMA_PERSIST_DIR` | `./chroma_data` | ChromaDB persistence directory |
+| `CHROMA_PERSIST_DIR` | platform user-data dir | ChromaDB persistence directory override |
 | `RAG_INGEST_DIR` | unset (skip startup sync) | Directory of markdown files to auto-sync on server startup |
 | `RAG_INGEST_COLLECTION` | `default` | Collection to sync `RAG_INGEST_DIR` into |
+
+## State Location
+
+By default, ChromaDB data is stored in your platform's user-data directory:
+
+| OS | Default location |
+|---|---|
+| macOS | `~/Library/Application Support/rag-mcp/chroma_data` |
+| Linux | `~/.local/share/rag-mcp/chroma_data` |
+| Windows | `%LOCALAPPDATA%\rag-mcp\chroma_data` |
+
+Set `CHROMA_PERSIST_DIR` to override this (supports `~` expansion).
 
 ## MCP Client Configuration
 
@@ -95,3 +116,8 @@ Incrementally sync a directory of markdown files into a collection. Safe to call
 ```bash
 pytest            # run tests
 ```
+
+## License
+
+[MIT](LICENSE) © 2026 Zachary Cutlip
+
