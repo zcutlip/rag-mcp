@@ -72,6 +72,8 @@ def test_list_collections_tool(mock_store):
 @patch("rag_mcp.server.store")
 def test_delete_collection_tool(mock_store):
     """delete_collection returns confirmation string."""
+    mock_store.list_collections.return_value = ["default"]
+
     from rag_mcp.server import delete_collection
 
     result = delete_collection(collection="default")
