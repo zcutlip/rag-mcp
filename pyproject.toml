@@ -1,27 +1,54 @@
 [build-system]
-requires = ["setuptools>=68.0", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "rag-mcp"
-version = "0.1.0"
-requires-python = ">=3.10"
+dynamic = ["version"]
+description = "MCP server exposing RAG tools backed by Ollama embeddings and ChromaDB"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Zachary Cutlip", email = "uid000@inode.link" }]
+keywords = ["mcp", "rag", "retrieval-augmented-generation", "ollama", "chromadb", "embeddings", "vector-store"]
 dependencies = [
     "mcp>=2,<3",
-    "ollama",
-    "chromadb",
+    "ollama>=0.4",
+    "chromadb>=1.5",
+    "platformdirs>=4",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Text Processing",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest",
+    "pre-commit",
+    "build",
 ]
 
 [project.scripts]
 rag-mcp = "rag_mcp.server:main"
 
+[project.urls]
+Homepage = "https://github.com/zcutlip/rag-mcp"
+Repository = "https://github.com/zcutlip/rag-mcp"
+Issues = "https://github.com/zcutlip/rag-mcp/issues"
+
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.dynamic]
+version = { attr = "rag_mcp.__version__" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
