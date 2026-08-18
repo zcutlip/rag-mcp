@@ -151,3 +151,22 @@ def test_delete_collection_missing(mock_get_store):
     with pytest.raises(ValueError):
         delete_collection(collection="missing")
     mock_store.delete_collection.assert_not_called()
+
+
+@patch("rag_mcp.server.get_config")
+def test_main_config_error_exits_with_guidance(mock_get_config, capsys):
+    """main() reports a config error on stderr, exits 1, and offers init guidance."""
+    mock_get_config.side_effect = ValueError(
+        "chroma.persist_dir must be configured in .rag-mcp.toml "
+        "or via RAG_MCP_CHROMA_PERSIST_DIR"
+    )
+
+    from rag_mcp.server import main
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 1
+    assert "chroma.persist_dir must be configured" in captured.err
+    assert "rag-mcp-config init" in captured.err
+    assert "Traceback" not in captured.err
