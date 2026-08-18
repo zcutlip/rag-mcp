@@ -203,5 +203,5 @@ pytest tests/test_server.py  # run specific module
 - **TDD order:** Write tests first and establish RED, then implement to GREEN. Tests are the locked contract — never change tests to make an implementation pass.
 - **RED contract gaps:** If RED exposes a legitimate contract gap, stop and surface it. With user approval, amend the test, then stop again for user approval of the amended test before resuming GREEN.
 - **Stop gates:** User-held review checkpoints. After each substantive stage, stop for user review/approval. Final review and commit are performed by the user.
-- **No commits:** Never commit, push, or stage-then-commit. Automated checks and delegate reports do not constitute user approval.
-- **Delegation tiers:** @lint and @commit are specialists and receive outcomes only — @commit is never invoked because committing stays with the user. @coder and @explore are generalists and may receive precise specifications.
+- **No commits:** Unless you are the @commit agent, never commit, push, or stage-then-commit. Automated checks and delegate reports do not constitute user approval.
+- **Delegation tiers:** @lint and @commit are specialists and receive outcomes only — @commit is never without being explicitly directed by the user. @coder and @explore are generalists and may receive precise specifications.
