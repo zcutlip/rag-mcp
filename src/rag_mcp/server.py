@@ -1,7 +1,8 @@
 """MCP server exposing RAG tools backed by Ollama embeddings and ChromaDB."""
+
 import argparse
-from importlib.metadata import PackageNotFoundError, metadata
 import sys
+from importlib.metadata import PackageNotFoundError, metadata
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
@@ -11,7 +12,13 @@ from rag_mcp.config import get_config
 from rag_mcp.embeddings import get_embeddings
 from rag_mcp.store import VectorStore
 
-mcp = MCPServer("rag-mcp")
+mcp = MCPServer(
+    "rag-mcp",
+    title="RAG MCP",
+    description="Retrieval-Augmented Generation server for document corpus queries",
+    version="0.1.0",
+    instructions="This server provides access to an indexed document corpus. Use query_documents to answer questions about the corpus content. Use list_collections to see available indexes. The rag://readme resource provides full documentation.",
+)
 store: VectorStore | None = None
 
 
@@ -24,6 +31,20 @@ def _read_readme() -> str | None:
 
     readme = package_metadata.get("Description")
     return readme if isinstance(readme, str) and readme.strip() else None
+
+
+@mcp.resource(
+    "rag://readme",
+    name="README",
+    description="Project README with setup and usage instructions",
+    mime_type="text/markdown",
+)
+def readme_resource() -> str:
+    """Return the project README."""
+    readme = _read_readme()
+    if readme is None:
+        return "README not available in this installation."
+    return readme
 
 
 def get_store() -> VectorStore:
@@ -63,12 +84,14 @@ def add_documents(
 
 @mcp.tool()
 def query_documents(query: str, n_results: int = 5, collection: str = "default") -> str:
-    """Retrieve the most relevant document chunks for a query."""
+    """Answer questions about the indexed corpus by retrieving relevant document chunks."""
     if n_results < 1:
         raise ValueError("n_results must be >= 1")
 
     cfg = get_config()
-    query_embedding = get_embeddings([query], cfg.embeddings_host, cfg.embeddings_model)[0]
+    query_embedding = get_embeddings(
+        [query], cfg.embeddings_host, cfg.embeddings_model
+    )[0]
     results = get_store().query(
         collection=collection,
         query_embedding=query_embedding,
@@ -84,13 +107,13 @@ def query_documents(query: str, n_results: int = 5, collection: str = "default")
     metadatas = results["metadatas"][0]
 
     lines: list[str] = []
-    for i, (doc_id, distance, document, metadata) in enumerate(
+    for i, (doc_id, distance, document, meta) in enumerate(
         zip(ids, distances, documents, metadatas)
     ):
         lines.append(f"Rank {i + 1} (distance: {distance:.4f})")
         lines.append(f"ID: {doc_id}")
         lines.append(document)
-        lines.append(f"Metadata: {metadata}")
+        lines.append(f"Metadata: {meta}")
         lines.append("---")
     return "\n".join(lines)
 
