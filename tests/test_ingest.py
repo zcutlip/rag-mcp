@@ -4,6 +4,9 @@ from unittest.mock import patch
 from rag_mcp.ingest import chunk_text, sync_directory
 from rag_mcp.store import VectorStore
 
+EMBEDDINGS_HOST = "http://localhost:11434"
+EMBEDDINGS_MODEL = "nomic-embed-text"
+
 
 def test_chunk_text_short_text_single_chunk():
     """Text shorter than chunk_size returns unchanged as a single chunk."""
@@ -20,7 +23,7 @@ def test_chunk_text_splits_long_text_with_overlap():
     assert chunks[0][-10:] == chunks[1][:10]
 
 
-def _fake_embeddings(texts):
+def _fake_embeddings(texts, host, model):
     return [[0.1, 0.2] for _ in texts]
 
 
@@ -35,7 +38,7 @@ def test_sync_first_time(tmp_path):
         result = sync_directory(store, str(docs_dir), collection="test")
 
     assert result == {"added": 1, "updated": 0, "deleted": 0, "unchanged": 0}
-    mock_emb.assert_called_once()
+    mock_emb.assert_called_once_with(["hello world"], EMBEDDINGS_HOST, EMBEDDINGS_MODEL)
 
     meta = store.get_all_metadata("test")
     assert meta["metadatas"][0]["source"] == "a.md"
@@ -49,7 +52,13 @@ def test_sync_noop_resync(tmp_path):
 
     store = VectorStore(persist_dir=str(tmp_path / "chroma"))
     with patch("rag_mcp.ingest.get_embeddings", side_effect=_fake_embeddings):
-        sync_directory(store, str(docs_dir), collection="test")
+        sync_directory(
+            store,
+            str(docs_dir),
+            collection="test",
+            embeddings_host=EMBEDDINGS_HOST,
+            embeddings_model=EMBEDDINGS_MODEL,
+        )
 
     with patch("rag_mcp.ingest.get_embeddings", side_effect=_fake_embeddings) as mock_emb:
         result = sync_directory(store, str(docs_dir), collection="test")
@@ -67,7 +76,13 @@ def test_sync_changed_file_resync(tmp_path):
 
     store = VectorStore(persist_dir=str(tmp_path / "chroma"))
     with patch("rag_mcp.ingest.get_embeddings", side_effect=_fake_embeddings):
-        sync_directory(store, str(docs_dir), collection="test")
+        sync_directory(
+            store,
+            str(docs_dir),
+            collection="test",
+            embeddings_host=EMBEDDINGS_HOST,
+            embeddings_model=EMBEDDINGS_MODEL,
+        )
 
     old_hash = store.get_all_metadata("test")["metadatas"][0]["content_hash"]
     md_file.write_text("goodbye world, this content is different")
@@ -76,7 +91,11 @@ def test_sync_changed_file_resync(tmp_path):
         result = sync_directory(store, str(docs_dir), collection="test")
 
     assert result == {"added": 0, "updated": 1, "deleted": 0, "unchanged": 0}
-    mock_emb.assert_called_once()
+    mock_emb.assert_called_once_with(
+        ["goodbye world, this content is different"],
+        EMBEDDINGS_HOST,
+        EMBEDDINGS_MODEL,
+    )
     new_hash = store.get_all_metadata("test")["metadatas"][0]["content_hash"]
     assert new_hash != old_hash
 
@@ -90,7 +109,13 @@ def test_sync_deleted_file_resync(tmp_path):
 
     store = VectorStore(persist_dir=str(tmp_path / "chroma"))
     with patch("rag_mcp.ingest.get_embeddings", side_effect=_fake_embeddings):
-        sync_directory(store, str(docs_dir), collection="test")
+        sync_directory(
+            store,
+            str(docs_dir),
+            collection="test",
+            embeddings_host=EMBEDDINGS_HOST,
+            embeddings_model=EMBEDDINGS_MODEL,
+        )
 
     md_file.unlink()
 

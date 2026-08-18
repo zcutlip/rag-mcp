@@ -5,8 +5,14 @@ import pytest
 
 
 def _test_config():
-    """A config stub for tools that fetch host/model."""
-    return MagicMock(embeddings_host="http://localhost:11434", embeddings_model="nomic-embed-text")
+    """A config stub for tools and main() that fetch host/model and ingest settings."""
+    return MagicMock(
+        embeddings_host="http://localhost:11434",
+        embeddings_model="nomic-embed-text",
+        chroma_persist_dir="/tmp/chroma",
+        ingest_dir="/tmp/docs",
+        ingest_collection="docs",
+    )
 
 
 @patch("rag_mcp.server.get_config")
@@ -170,3 +176,37 @@ def test_main_config_error_exits_with_guidance(mock_get_config, capsys):
     assert "chroma.persist_dir must be configured" in captured.err
     assert "rag-mcp-config init" in captured.err
     assert "Traceback" not in captured.err
+
+
+@patch("rag_mcp.server.ingest.sync_directory")
+@patch("rag_mcp.server.mcp.run")
+@patch("rag_mcp.server.VectorStore")
+@patch("rag_mcp.server.get_config")
+def test_main_auto_ingest_forwards_host_model(
+    mock_get_config, mock_vectorstore, mock_run, mock_sync
+):
+    """main() startup auto-ingest forwards embeddings host/model to ingest.sync_directory."""
+    mock_get_config.return_value = _test_config()
+
+    from rag_mcp.server import main
+
+    main()
+    mock_sync.assert_called_once()
+    _, kwargs = mock_sync.call_args
+    assert kwargs["embeddings_host"] == "http://localhost:11434"
+    assert kwargs["embeddings_model"] == "nomic-embed-text"
+
+
+@patch("rag_mcp.server.get_config")
+@patch("rag_mcp.server.mcp.run")
+def test_main_help_exits_zero_without_starting(mock_run, mock_get_config, capsys):
+    """main(["--help"]) prints usage, exits 0, without loading config or starting the server."""
+    from rag_mcp.server import main
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--help"])
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 0
+    assert "usage" in captured.out + captured.err
+    mock_get_config.assert_not_called()
+    mock_run.assert_not_called()
