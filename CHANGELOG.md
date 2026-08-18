@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TOML-based configuration file with `RAG_MCP_*` environment variable overrides and fail-fast validation.
 - Project-local `.rag-mcp.toml` config, discovered by walking up from the current working directory. Relative paths resolve against the project root and are constrained to it.
 - `rag-mcp-config` CLI utility with `init` subcommand that writes starter global and project config files. Idempotent: skips existing files with a note.
+- `rag-mcp-config init` reports the path of each file it writes or skips.
 
 ### Changed
 
@@ -19,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** `chroma.persist_dir` is now required; it no longer defaults to a platform user-data directory. Configure it in `.rag-mcp.toml` or via `RAG_MCP_CHROMA_PERSIST_DIR`.
 - **Breaking:** Global `config.toml` reads only `[embeddings]` defaults; `[chroma]` and `[ingest]` keys there are ignored. Project-specific data belongs in `.rag-mcp.toml`.
 - **Breaking:** Renamed the `[ollama]` config section to `[embeddings]` and the matching env vars `RAG_MCP_OLLAMA_HOST` / `RAG_MCP_OLLAMA_MODEL` to `RAG_MCP_EMBEDDINGS_HOST` / `RAG_MCP_EMBEDDINGS_MODEL`. The config-section rename is provider-neutral in preparation for supporting additional embedding providers; the env-var rename reflects the same.
+- `rag-mcp --help` now prints usage without starting the server, and startup configuration errors are reported on stderr with initialization guidance instead of a traceback.
+- Directory ingestion now receives the configured embedding host and model consistently for both MCP-triggered and startup auto-ingestion.
 
 ## [0.1.0] - 2026-08-15
 

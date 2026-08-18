@@ -99,6 +99,11 @@ This creates:
 
 If either file already exists, it's skipped with a note. The command is idempotent — safe to run multiple times.
 
+The command reports each path it writes or skips. `rag-mcp --help` prints server
+usage without loading configuration or starting the MCP server. If startup
+configuration is missing or invalid, `rag-mcp` reports the error on stderr and
+suggests running `rag-mcp-config init`.
+
 ## MCP Client Configuration
 
 Register `rag-mcp` as a server in your MCP client. The recommended setup
@@ -198,4 +203,3 @@ pytest            # run tests
 ## License
 
 [MIT](LICENSE) © 2026 Zachary Cutlip
-
