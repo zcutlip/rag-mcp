@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `rag-mcp-config` CLI utility with `init` subcommand that writes starter global and project config files. Idempotent: skips existing files with a note.
 - `rag-mcp-config init` reports the path of each file it writes or skips.
 - `rag-mcp readme` prints the installed project README for agents and users without starting the MCP server.
+- Server metadata (title, description, version, instructions) helps agents discover and understand the server's purpose
+- `rag://readme` resource exposes the project README for agents to read at runtime
+- `query_documents` tool description explicitly identifies it as the primary tool for answering questions about the indexed corpus
 
 ### Changed
 

@@ -46,7 +46,7 @@ src/rag_mcp/          # Source modules (src-layout)
 tests/                # Test suite (flat structure, no classes)
   test_config.py      # 23 tests for configuration loading (global + project + env)
   test_config_cli.py  # 8 tests for rag-mcp-config init utility
-  test_server.py      # 12 tests for MCP tools
+  test_server.py      # 24 tests for MCP tools
   test_embeddings.py  # 2 tests for embedding client
   test_store.py       # 5 tests for vector store
   test_ingest.py      # 6 tests for directory sync
@@ -159,12 +159,12 @@ Global TOML keys: `[embeddings] host`/`model`. Project TOML keys: `[embeddings]`
 
 **Framework:** pytest
 
-**Test count:** 61 tests total
+**Test count:** 69 tests total
 - `test_config.py`: 23 tests (defaults, global+project+env precedence, cwd walk-up discovery, relative-path resolution, subpath constraint, `~` expansion, missing/invalid config files, invalid host/model, missing ingest dir, `get_config()` caching)
 - `test_config_cli.py`: 8 tests for `rag-mcp-config init` utility (writes both files, skips existing, mkdir parents, cwd-only project, help/unknown verb)
 - `test_embeddings.py`: 2 tests (empty input, success passes host/model)
 - `test_store.py`: 5 tests (add+query, ID generation, validation, lifecycle, empty collection)
-- `test_server.py`: 16 tests (add_documents, query_documents happy+empty, list_collections, delete_collection, empty documents, validation, main config error guidance, main auto-ingest forwards host/model, main --help/readme/unknown-command behavior)
+- `test_server.py`: 24 tests (add_documents, query_documents happy+empty, list_collections, delete_collection, empty documents, validation, main config error guidance, main auto-ingest forwards host/model, main --help/readme/unknown-command behavior, server metadata, rag://readme resource, tool descriptions)
 - `test_ingest.py`: 6 tests (chunking short/long text, first-time sync, noop re-sync, changed-file re-sync, deleted-file re-sync)
 - `test_version.py`: 1 test (semver format)
 

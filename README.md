@@ -113,6 +113,20 @@ rag-mcp readme
 This prints the README and exits without loading configuration or starting the
 MCP server.
 
+## Server Metadata and Resources
+
+The MCP server exposes metadata and a self-documentation resource to help agents discover and use it effectively:
+
+- **Server instructions** guide agents toward `query_documents` for corpus questions
+- **`rag://readme` resource** provides the full README for agents to read at runtime
+- **Tool descriptions** explicitly identify `query_documents` as the primary tool for answering questions about the indexed corpus
+
+When an agent connects to `rag-mcp`, it can:
+1. Read server instructions to understand the server's purpose
+2. List resources to discover `rag://readme`
+3. Read the README resource for detailed usage guidance
+4. Use `query_documents` to answer questions about the corpus
+
 ## MCP Client Configuration
 
 Register `rag-mcp` as a server in your MCP client. The recommended setup
