@@ -37,57 +37,99 @@ pip install -e ".[dev]"
 
 ## Configuration
 
-Configuration is loaded from a TOML config file with `RAG_MCP_*` environment variables as overrides. Precedence: defaults < config file < environment variables.
+Configuration is loaded from two files with `RAG_MCP_*` environment variables
+as overrides. Precedence: defaults < global file < project file < env vars.
 
-### Config file
+### Global config (`config.toml`)
 
-The default config path is your platform's config directory (e.g. `~/.config/rag-mcp/config.toml` on Linux, `~/Library/Application Support/rag-mcp/config.toml` on macOS). Point `RAG_MCP_CONFIG` at a specific file to override it.
+Holds machine-level Ollama defaults only. Located at
+`platformdirs.user_config_dir("rag-mcp") / "config.toml"`, e.g.
+`~/Library/Application Support/rag-mcp/config.toml` on macOS or
+`~/.config/rag-mcp/config.toml` on Linux. Override with `RAG_MCP_CONFIG`.
 
 ```toml
 [ollama]
 host = "http://localhost:11434"
 model = "nomic-embed-text"
+```
 
+### Project config (`.rag-mcp.toml`)
+
+Holds project-local data settings. Discovered by walking up from the current
+working directory. Commit this file in your repo for portability:
+
+```toml
 [chroma]
-persist_dir = ""            # empty → platform user-data default
+persist_dir = "./.chroma"
 
 [ingest]
-directory = "~/notes"       # optional; must exist if set
+directory = "./docs"
 collection = "default"
 ```
 
+Relative paths in the project file resolve against the directory containing
+`.rag-mcp.toml` (the project root) and must stay within it. Add `.chroma/`
+(or whatever you chose) to `.gitignore`.
+
 ### Environment variables
+
+All env vars are optional overrides. `chroma.persist_dir` is required and
+must be set in `.rag-mcp.toml` or via `RAG_MCP_CHROMA_PERSIST_DIR`.
 
 | Variable | Default | Description |
 |---|---|---|
-| `RAG_MCP_CONFIG` | platform config dir | Explicit config file path |
+| `RAG_MCP_CONFIG` | platform config dir | Explicit global config file path |
 | `RAG_MCP_OLLAMA_HOST` | `http://localhost:11434` | Ollama API endpoint |
 | `RAG_MCP_OLLAMA_MODEL` | `nomic-embed-text` | Embedding model name |
-| `RAG_MCP_CHROMA_PERSIST_DIR` | platform user-data dir | ChromaDB persistence directory override |
+| `RAG_MCP_CHROMA_PERSIST_DIR` | required | ChromaDB persistence directory |
 | `RAG_MCP_INGEST_DIR` | unset (skip startup sync) | Directory of markdown files to auto-sync on server startup |
 | `RAG_MCP_INGEST_COLLECTION` | `default` | Collection to sync `RAG_MCP_INGEST_DIR` into |
 
-## State Location
-
-By default, ChromaDB data is stored in your platform's user-data directory:
-
-| OS | Default location |
-|---|---|
-| macOS | `~/Library/Application Support/rag-mcp/chroma_data` |
-| Linux | `~/.local/share/rag-mcp/chroma_data` |
-| Windows | `%LOCALAPPDATA%\rag-mcp\chroma_data` |
-
-Set `RAG_MCP_CHROMA_PERSIST_DIR` to override this (supports `~` expansion).
-
 ## MCP Client Configuration
 
-Add to your MCP client config (e.g. Claude Desktop `claude_desktop_config.json`):
+Register `rag-mcp` as a server in your MCP client. The recommended setup
+is to commit a `.rag-mcp.toml` in each project and have the client launch
+the server from the project root so cwd-walk-up finds it.
+
+**Claude Code** — project-scoped `.mcp.json` in the repo root:
 
 ```json
 {
   "mcpServers": {
     "rag": {
       "command": "rag-mcp"
+    }
+  }
+}
+```
+
+**OpenCode** — `opencode.json` (or `.jsonc`):
+
+```jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "rag": {
+      "type": "local",
+      "command": ["rag-mcp"],
+      "cwd": "."
+    }
+  }
+}
+```
+
+If your client doesn't launch from the project root, or you can't use
+`.rag-mcp.toml`, set `RAG_MCP_*` env vars explicitly:
+
+```json
+{
+  "mcpServers": {
+    "rag": {
+      "command": "rag-mcp",
+      "env": {
+        "RAG_MCP_CHROMA_PERSIST_DIR": "/abs/path/to/project/.chroma",
+        "RAG_MCP_INGEST_DIR": "/abs/path/to/project/docs"
+      }
     }
   }
 }
@@ -127,7 +169,7 @@ Delete a collection and all its documents.
 
 ### `sync_directory`
 
-Incrementally sync a directory of markdown files into a collection. Safe to call repeatedly: new and changed files are chunked and (re-)embedded, unchanged files are skipped, and files removed from disk have their chunks removed from the collection. Setting `RAG_MCP_INGEST_DIR` (or `[ingest] directory` in the config file) also runs this automatically on server startup.
+Incrementally sync a directory of markdown files into a collection. Safe to call repeatedly: new and changed files are chunked and (re-)embedded, unchanged files are skipped, and files removed from disk have their chunks removed from the collection. Setting `RAG_MCP_INGEST_DIR` (or `[ingest] directory` in `.rag-mcp.toml`) also runs this automatically on server startup.
 
 **Parameters:**
 - `directory` (str) — path to the directory of `.md`/`.markdown` files to sync
