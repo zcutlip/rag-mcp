@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Server metadata (title, description, version, instructions) helps agents discover and understand the server's purpose
 - `rag://readme` resource exposes the project README for agents to read at runtime
 - `query_documents` tool description explicitly identifies it as the primary tool for answering questions about the indexed corpus
+- YAML frontmatter parsing: markdown files with YAML frontmatter (title, url, tags, created, updated) are now parsed during ingestion and stored as metadata
+- `query_documents` now returns structured responses with `results` array and `sources` dictionary, replacing the previous formatted string output
+- `query_documents` supports a `compact` parameter (default: true) to control metadata verbosity
 
 ### Changed
 
@@ -26,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** Renamed the `[ollama]` config section to `[embeddings]` and the matching env vars `RAG_MCP_OLLAMA_HOST` / `RAG_MCP_OLLAMA_MODEL` to `RAG_MCP_EMBEDDINGS_HOST` / `RAG_MCP_EMBEDDINGS_MODEL`. The config-section rename is provider-neutral in preparation for supporting additional embedding providers; the env-var rename reflects the same.
 - `rag-mcp --help` now prints usage without starting the server, and startup configuration errors are reported on stderr with initialization guidance instead of a traceback.
 - Directory ingestion now receives the configured embedding host and model consistently for both MCP-triggered and startup auto-ingestion.
+- **Breaking:** `query_documents` now returns a structured dict with `results` and `sources` fields instead of a formatted string. Clients expecting the old string format must be updated.
 
 ## [0.1.0] - 2026-08-15
 

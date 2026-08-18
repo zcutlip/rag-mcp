@@ -16,7 +16,7 @@ Client (MCP) → server.py (MCPServer) → get_embeddings() → Ollama API
 - `server.py`: MCPServer entry point, defines 5 tools (add_documents, query_documents, list_collections, delete_collection, sync_directory) plus `--help`/`readme` CLI commands; module-level `mcp` plus a lazy `store` built in `main()` and accessed via `get_store()`
 - `embeddings.py`: Ollama embedding client, `get_embeddings(texts, host, model)` with compatibility shim for SDK >=0.4 (host/model passed in, no `os.environ` access)
 - `store.py`: ChromaDB wrapper class `VectorStore` with add/query/upsert/get_all_metadata/delete_ids/list_collections/delete_collection operations
-- `ingest.py`: directory-to-vector-store sync (`iter_markdown_files`, `chunk_text`, `file_hash`, `sync_directory`). The one module that composes the other two — takes a `VectorStore` instance plus `embeddings_host`/`embeddings_model` as parameters (never globals) so it stays unit-testable
+- `ingest.py`: directory-to-vector-store sync (`iter_markdown_files`, `chunk_text`, `file_hash`, `sync_directory`, `parse_frontmatter`, `strip_frontmatter`). Parses YAML frontmatter from markdown files and stores metadata (title, url, tags, created, updated). The one module that composes the other two — takes a `VectorStore` instance plus `embeddings_host`/`embeddings_model` as parameters (never globals) so it stays unit-testable
 - `_config_cli.py`: CLI for `rag-mcp-config init` utility, writes starter global and project config files
 - `__init__.py`: Package marker, exports `__version__`
 
@@ -50,6 +50,9 @@ tests/                # Test suite (flat structure, no classes)
   test_embeddings.py  # 2 tests for embedding client
   test_store.py       # 5 tests for vector store
   test_ingest.py      # 6 tests for directory sync
+  test_frontmatter.py # 7 tests for YAML frontmatter parsing
+  test_ingest_frontmatter.py # 12 tests for frontmatter metadata storage and migration
+  test_query_structured.py # 8 tests for structured query responses
   test_version.py     # 1 test for package version
 docs/                 # Current specs
 docs/archive/         # Completed/superseded specs, named YYYY-MM-DD-<topic>-spec.md
@@ -146,7 +149,7 @@ Global TOML keys: `[embeddings] host`/`model`. Project TOML keys: `[embeddings]`
 **Build system:** setuptools with src-layout. Standard PEP 517/518 packaging.
 
 **Dependencies:**
-- Runtime: `mcp`, `ollama`, `chromadb`, `platformdirs`
+- Runtime: `mcp`, `ollama`, `chromadb`, `platformdirs`, `pyyaml`
 - Dev: `pytest`
 
 **Package managers:** Works with `pip`, `pipx`. `uv.lock` exists but is gitignored; on macOS the configured index may lack `onnxruntime` wheels (a transitive `chromadb` dependency) — if `uv sync` fails to resolve, fall back to `venv` + `pip install -e ".[dev]"` rather than fighting the lockfile.
@@ -159,12 +162,15 @@ Global TOML keys: `[embeddings] host`/`model`. Project TOML keys: `[embeddings]`
 
 **Framework:** pytest
 
-**Test count:** 69 tests total
+**Test count:** 96 tests total
 - `test_config.py`: 23 tests (defaults, global+project+env precedence, cwd walk-up discovery, relative-path resolution, subpath constraint, `~` expansion, missing/invalid config files, invalid host/model, missing ingest dir, `get_config()` caching)
 - `test_config_cli.py`: 8 tests for `rag-mcp-config init` utility (writes both files, skips existing, mkdir parents, cwd-only project, help/unknown verb)
 - `test_embeddings.py`: 2 tests (empty input, success passes host/model)
+- `test_frontmatter.py`: 7 tests (YAML frontmatter parsing, stripping, invalid YAML handling)
+- `test_ingest_frontmatter.py`: 12 tests (frontmatter metadata storage, migration, incremental sync with frontmatter)
 - `test_store.py`: 5 tests (add+query, ID generation, validation, lifecycle, empty collection)
 - `test_server.py`: 24 tests (add_documents, query_documents happy+empty, list_collections, delete_collection, empty documents, validation, main config error guidance, main auto-ingest forwards host/model, main --help/readme/unknown-command behavior, server metadata, rag://readme resource, tool descriptions)
+- `test_query_structured.py`: 8 tests (structured response format, compact mode, source deduplication, distance rounding, ranking)
 - `test_ingest.py`: 6 tests (chunking short/long text, first-time sync, noop re-sync, changed-file re-sync, deleted-file re-sync)
 - `test_version.py`: 1 test (semver format)
 
@@ -186,8 +192,10 @@ pytest tests/test_server.py  # run specific module
 - Default behavior vs environment variable overrides
 - Auto-generated IDs (UUID strings, unique)
 - Collection lifecycle (create, list, delete)
-- Query results (ranking, metadata, distances)
+- Query results (structured response format, ranking, metadata, distances)
 - Incremental sync (idempotent re-sync, changed/deleted file detection)
+- YAML frontmatter parsing (extraction, stripping, invalid YAML handling)
+- Frontmatter metadata storage and migration
 
 **Mocking strategy:**
 - Embeddings: `patch("rag_mcp.embeddings.ollama.embed")` returns `MagicMock` with `.embeddings` attribute

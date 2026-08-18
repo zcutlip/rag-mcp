@@ -11,6 +11,35 @@ An MCP server that exposes tools for ingesting document chunks and retrieving re
 - [Ollama](https://ollama.com) running locally
 - The embedding model pulled: `ollama pull nomic-embed-text`
 
+## Getting Started
+
+### For Agents
+
+Copy-paste this prompt to set up `rag-mcp` in a project:
+
+```markdown
+Set up the `rag-mcp` MCP server for this project:
+
+1. Identify the project root (where `.rag-mcp.toml` should live).
+2. Install `rag-mcp`. If you're working from this repo's checkout, use `pipx install -e .`; otherwise use the documented package install.
+3. From the project root, run `rag-mcp-config init` early — prefer it over hand-crafting config files.
+4. Run `rag-mcp readme` and follow the README's remaining setup and client-specific guidance.
+5. Verify or reload the MCP connection.
+
+> Note: the README and the `rag://readme` resource are server setup documentation, not corpus content. For questions about the indexed corpus, use the `query_documents` tool.
+```
+
+Or if you prefer to drive yourself follow these instructions...
+
+### For Humans
+
+1. Meet the prerequisites: Python 3.12+, [Ollama](https://ollama.com) running locally, and the embedding model pulled (`ollama pull nomic-embed-text`).
+2. Install `rag-mcp` (see [Installation](#installation)).
+3. From the project root, run `rag-mcp-config init` to generate starter config files.
+4. Add `.chroma/` (or your chosen `persist_dir`) to `.gitignore`.
+5. Configure your coding agent (see [MCP Client Configuration](#mcp-client-configuration)).
+6. Restart and verify the MCP connection.
+
 ## Installation
 
 ### End-user (pipx)
@@ -197,6 +226,59 @@ Retrieve the most relevant document chunks for a query string.
 - `query` (str) — the search query
 - `n_results` (int, default `5`) — number of results to return
 - `collection` (str, default `"default"`) — collection to search
+- `compact` (bool, default `true`) — if true, return minimal metadata per hit; if false, include full metadata
+
+**Response format:**
+
+Returns a structured dict with `results` and `sources` fields:
+
+```json
+{
+  "results": [
+    {
+      "rank": 1,
+      "content": "document chunk text",
+      "distance": 0.123,
+      "metadata": {
+        "source": "path/to/file.md",
+        "chunk_index": 0,
+        "content_hash": "abc123"
+      }
+    }
+  ],
+  "sources": {
+    "path/to/file.md": {
+      "title": "Document Title",
+      "url": "https://example.com",
+      "tags": ["tag1", "tag2"],
+      "created": "2024-01-01",
+      "updated": "2024-06-01"
+    }
+  }
+}
+```
+
+The `sources` dictionary contains deduplicated metadata from YAML frontmatter, keyed by source path. When `compact=false`, each result's `metadata` field includes the full frontmatter fields.
+
+**YAML frontmatter support:**
+
+Markdown files can include YAML frontmatter that will be parsed and stored as metadata:
+
+```markdown
+---
+title: Document Title
+url: https://example.com
+tags:
+  - tag1
+  - tag2
+created: 2024-01-01
+updated: 2024-06-01
+---
+
+# Document content here
+```
+
+Supported frontmatter fields: `title`, `url`, `tags`, `created`, `updated`. The frontmatter is stripped before chunking and embedding, so it doesn't appear in the document content.
 
 ### `list_collections`
 
