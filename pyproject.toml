@@ -17,6 +17,7 @@ dependencies = [
     "ollama>=0.4",
     "chromadb>=1.5",
     "platformdirs>=4",
+    "pyyaml>=6",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
