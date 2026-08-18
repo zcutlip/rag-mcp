@@ -1,10 +1,67 @@
 """Markdown directory ingestion: chunking, hashing, and incremental sync into VectorStore."""
 import hashlib
+import json
+import re
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from rag_mcp.embeddings import get_embeddings
 from rag_mcp.store import VectorStore
+
+FRONTMATTER_PATTERN = re.compile(r'^---\s*\n(.*?)\n?---\s*\n', re.DOTALL)
+
+
+def parse_frontmatter(text: str) -> dict[str, Any]:
+    """Extract YAML frontmatter from markdown text.
+
+    Returns the frontmatter dict.
+    If no frontmatter is found or YAML is invalid, returns {}.
+    """
+    match = FRONTMATTER_PATTERN.match(text)
+    if not match:
+        return {}
+
+    yaml_content = match.group(1)
+    try:
+        data = yaml.safe_load(yaml_content)
+        return data if isinstance(data, dict) else {}
+    except yaml.YAMLError:
+        # Invalid YAML - return empty dict
+        return {}
+
+
+def strip_frontmatter(text: str) -> str:
+    """Remove YAML frontmatter from markdown text.
+
+    Returns the text without the frontmatter block.
+    """
+    match = FRONTMATTER_PATTERN.match(text)
+    if not match:
+        return text
+    return text[match.end():]
+
+
+def _serialize_metadata_value(value: Any) -> Any:
+    """Serialize a metadata value for Chroma storage.
+
+    Chroma requires metadata values to be strings, ints, floats, or bools.
+    Lists and dicts are JSON-encoded. Dates are converted to ISO strings.
+    """
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    elif isinstance(value, (list, dict)):
+        return json.dumps(value)
+    else:
+        return value
+
+
+def _serialize_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    """Serialize all metadata values for Chroma storage."""
+    return {k: _serialize_metadata_value(v) for k, v in metadata.items()}
+
 
 CHUNK_SIZE = 4000
 CHUNK_OVERLAP = 200
@@ -48,6 +105,8 @@ def sync_directory(
     New/changed files are chunked, embedded, and upserted. Unchanged files
     (same content hash) are skipped. Files no longer present on disk have
     their chunks deleted.
+
+    Frontmatter is stripped before chunking and stored as metadata.
     """
     existing = store.get_all_metadata(collection)
     existing_by_source: dict[str, list[dict[str, Any]]] = {}
@@ -68,25 +127,53 @@ def sync_directory(
     for path in iter_markdown_files(directory):
         source = str(path.relative_to(root).as_posix())
         seen_sources.add(source)
-        text = path.read_text(encoding="utf-8")
-        digest = file_hash(text)
+        raw_text = path.read_text(encoding="utf-8")
+
+        # Parse and strip frontmatter
+        frontmatter = parse_frontmatter(raw_text)
+        stripped_text = strip_frontmatter(raw_text)
+
+        # Hash the stripped content (not raw)
+        digest = file_hash(stripped_text)
         prior_chunks = existing_by_source.get(source, [])
         prior_hash = prior_chunks[0]["content_hash"] if prior_chunks else None
 
-        if prior_hash == digest:
+        # Check if we need to re-index (hash changed OR frontmatter metadata missing)
+        needs_reindex = (prior_hash != digest)
+        if not needs_reindex and prior_chunks:
+            # Check if any chunk is missing frontmatter metadata (migration case)
+            has_frontmatter = bool(frontmatter)  # Current file has frontmatter
+            chunks_have_frontmatter = any(
+                "title" in chunk or "url" in chunk or "tags" in chunk
+                for chunk in prior_chunks
+            )
+            if has_frontmatter and not chunks_have_frontmatter:
+                needs_reindex = True
+
+        if not needs_reindex:
             counts["unchanged"] += 1
             continue
 
-        if not text.strip():
+        if not stripped_text.strip():
             ids_to_delete.extend(c["id"] for c in prior_chunks)
             counts["updated" if prior_chunks else "added"] += 1
             continue
 
-        new_chunks = chunk_text(text)
+        # Serialize frontmatter for Chroma
+        serialized_frontmatter = _serialize_metadata(frontmatter)
+
+        new_chunks = chunk_text(stripped_text)
         for i, chunk in enumerate(new_chunks):
             staged_ids.append(f"{source}::{i}")
             staged_docs.append(chunk)
-            staged_metadatas.append({"source": source, "content_hash": digest, "chunk_index": i})
+            # Base metadata + frontmatter
+            chunk_metadata = {
+                "source": source,
+                "content_hash": digest,
+                "chunk_index": i,
+                **serialized_frontmatter,
+            }
+            staged_metadatas.append(chunk_metadata)
 
         if len(new_chunks) < len(prior_chunks):
             ids_to_delete.extend(

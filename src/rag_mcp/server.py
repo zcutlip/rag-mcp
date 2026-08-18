@@ -17,7 +17,12 @@ mcp = MCPServer(
     title="RAG MCP",
     description="Retrieval-Augmented Generation server for document corpus queries",
     version="0.1.0",
-    instructions="This server provides access to an indexed document corpus. Use query_documents to answer questions about the corpus content. Use list_collections to see available indexes. The rag://readme resource provides full documentation.",
+    instructions=(
+        "This server provides access to an indexed document corpus. "
+        "Use query_documents to answer questions about the corpus content. "
+        "Use list_collections to see available indexes. "
+        "The rag://readme resource provides full documentation."
+    ),
 )
 store: VectorStore | None = None
 
@@ -83,8 +88,25 @@ def add_documents(
 
 
 @mcp.tool()
-def query_documents(query: str, n_results: int = 5, collection: str = "default") -> str:
-    """Answer questions about the indexed corpus by retrieving relevant document chunks."""
+def query_documents(
+    query: str,
+    n_results: int = 5,
+    collection: str = "default",
+    compact: bool = True,
+) -> dict[str, Any]:
+    """Answer questions about the indexed corpus by retrieving relevant document chunks.
+
+    Args:
+        query: The search query
+        n_results: Number of results to return (default 5)
+        collection: Collection to search (default "default")
+        compact: If True, return minimal metadata per hit. If False, include full metadata.
+
+    Returns:
+        A dict with 'results' (list of hits) and 'sources' (deduplicated source metadata).
+        Each result has: rank, content, distance, metadata.
+        Sources are keyed by source path and contain title, url, tags, created, updated.
+    """
     if n_results < 1:
         raise ValueError("n_results must be >= 1")
 
@@ -100,22 +122,57 @@ def query_documents(query: str, n_results: int = 5, collection: str = "default")
 
     documents = results.get("documents", [[]])[0]
     if not documents:
-        return "No matching documents found."
+        return {"results": [], "sources": {}}
 
     ids = results["ids"][0]
     distances = results["distances"][0]
     metadatas = results["metadatas"][0]
 
-    lines: list[str] = []
-    for i, (doc_id, distance, document, meta) in enumerate(
-        zip(ids, distances, documents, metadatas)
-    ):
-        lines.append(f"Rank {i + 1} (distance: {distance:.4f})")
-        lines.append(f"ID: {doc_id}")
-        lines.append(document)
-        lines.append(f"Metadata: {meta}")
-        lines.append("---")
-    return "\n".join(lines)
+    # Combine and sort by distance (ascending)
+    combined = list(zip(ids, distances, documents, metadatas))
+    combined.sort(key=lambda x: x[1])
+
+    # Build results list
+    results_list = []
+    sources = {}
+
+    for i, (doc_id, distance, document, meta) in enumerate(combined):
+        # Round distance to 3 decimal places
+        rounded_distance = round(distance, 3)
+
+        # Build per-hit metadata
+        hit_metadata = {
+            "source": meta.get("source", ""),
+            "chunk_index": meta.get("chunk_index", 0),
+            "content_hash": meta.get("content_hash", ""),
+        }
+
+        # If not compact, include full metadata
+        if not compact:
+            # Add all frontmatter fields
+            for key in ["title", "url", "tags", "created", "updated"]:
+                if key in meta:
+                    hit_metadata[key] = meta[key]
+
+        result = {
+            "rank": i + 1,
+            "content": document,
+            "distance": rounded_distance,
+            "metadata": hit_metadata,
+        }
+        results_list.append(result)
+
+        # Build deduplicated sources dict
+        source_path = meta.get("source", "")
+        if source_path and source_path not in sources:
+            source_meta = {}
+            for key in ["title", "url", "tags", "created", "updated"]:
+                if key in meta:
+                    source_meta[key] = meta[key]
+            if source_meta:
+                sources[source_path] = source_meta
+
+    return {"results": results_list, "sources": sources}
 
 
 @mcp.tool()
