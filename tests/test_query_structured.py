@@ -108,7 +108,10 @@ def test_query_full_mode_includes_metadata(mock_get_store, mock_get_embeddings, 
     result = query_documents(query="guide", compact=False)
     for hit in result["results"]:
         metadata = hit["metadata"]
-        for key in ("source", "chunk_index", "content_hash", "title", "url", "tags", "created", "updated"):
+        for key in (
+            "source", "chunk_index", "content_hash",
+            "title", "url", "tags", "created", "updated"
+        ):
             assert key in metadata
     first = result["results"][0]["metadata"]
     assert first["title"] == "User Guide"

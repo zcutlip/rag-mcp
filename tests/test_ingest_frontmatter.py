@@ -2,7 +2,8 @@
 import json
 from unittest.mock import patch
 
-from rag_mcp.ingest import file_hash, parse_frontmatter, strip_frontmatter, sync_directory
+from rag_mcp.ingest import (file_hash, parse_frontmatter, strip_frontmatter,
+                            sync_directory)
 from rag_mcp.store import VectorStore
 
 EMBEDDINGS_HOST = "http://localhost:11434"
