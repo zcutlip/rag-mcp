@@ -1,5 +1,6 @@
 """MCP server exposing RAG tools backed by Ollama embeddings and ChromaDB."""
 import argparse
+from importlib.metadata import PackageNotFoundError, metadata
 import sys
 from typing import Any
 
@@ -12,6 +13,17 @@ from rag_mcp.store import VectorStore
 
 mcp = MCPServer("rag-mcp")
 store: VectorStore | None = None
+
+
+def _read_readme() -> str | None:
+    """Return the README embedded in the installed distribution metadata."""
+    try:
+        package_metadata = metadata("rag-mcp")
+    except PackageNotFoundError:
+        return None
+
+    readme = package_metadata.get("Description")
+    return readme if isinstance(readme, str) and readme.strip() else None
 
 
 def get_store() -> VectorStore:
@@ -127,7 +139,23 @@ def main(argv: list[str] | None = None) -> None:
         prog="rag-mcp",
         description="Run the rag-mcp MCP server.",
     )
-    parser.parse_args(argv)
+    parser.add_argument(
+        "command",
+        nargs="?",
+        choices=["readme"],
+        help="Print the project README and exit",
+    )
+    args = parser.parse_args(argv)
+    if args.command == "readme":
+        readme = _read_readme()
+        if readme is None:
+            print(
+                "Error: the rag-mcp README is unavailable in this installation.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        print(readme, end="")
+        sys.exit(0)
 
     try:
         config = get_config()
