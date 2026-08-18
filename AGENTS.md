@@ -13,7 +13,7 @@ Client (MCP) → server.py (MCPServer) → get_embeddings() → Ollama API
 
 **Module responsibilities:**
 - `config.py`: `Config` frozen dataclass plus `load_config()`/`get_config()`. Loads a global `config.toml` (only `[embeddings]`) and a project `.rag-mcp.toml` (discovered by cwd walk-up) with `RAG_MCP_*` env overrides. Resolves relative paths in the project file against the project root and constrains them to it. Validates eagerly (fail fast).
-- `server.py`: MCPServer entry point, defines 5 tools (add_documents, query_documents, list_collections, delete_collection, sync_directory); module-level `mcp` plus a lazy `store` built in `main()` and accessed via `get_store()`
+- `server.py`: MCPServer entry point, defines 5 tools (add_documents, query_documents, list_collections, delete_collection, sync_directory) plus `--help`/`readme` CLI commands; module-level `mcp` plus a lazy `store` built in `main()` and accessed via `get_store()`
 - `embeddings.py`: Ollama embedding client, `get_embeddings(texts, host, model)` with compatibility shim for SDK >=0.4 (host/model passed in, no `os.environ` access)
 - `store.py`: ChromaDB wrapper class `VectorStore` with add/query/upsert/get_all_metadata/delete_ids/list_collections/delete_collection operations
 - `ingest.py`: directory-to-vector-store sync (`iter_markdown_files`, `chunk_text`, `file_hash`, `sync_directory`). The one module that composes the other two — takes a `VectorStore` instance plus `embeddings_host`/`embeddings_model` as parameters (never globals) so it stays unit-testable
@@ -125,7 +125,7 @@ Global TOML keys: `[embeddings] host`/`model`. Project TOML keys: `[embeddings]`
 **Entry points:**
 - `src/rag_mcp/server.py:main()` — CLI entry point, calls `mcp.run()` for stdio transport
 - `src/rag_mcp/_config_cli.py:main()` — CLI entry point for `rag-mcp-config init`
-- Console scripts: `rag-mcp` → `rag_mcp.server:main`, `rag-mcp-config` → `rag_mcp._config_cli:main` (defined in `pyproject.toml`)
+- Console scripts: `rag-mcp` → `rag_mcp.server:main` (`--help`/`readme` and MCP server), `rag-mcp-config` → `rag_mcp._config_cli:main` (defined in `pyproject.toml`)
 
 **Configuration:**
 - `pyproject.toml` — Single source of truth for package metadata, dependencies, build system, entry points, pytest config
@@ -159,12 +159,12 @@ Global TOML keys: `[embeddings] host`/`model`. Project TOML keys: `[embeddings]`
 
 **Framework:** pytest
 
-**Test count:** 57 tests total
+**Test count:** 61 tests total
 - `test_config.py`: 23 tests (defaults, global+project+env precedence, cwd walk-up discovery, relative-path resolution, subpath constraint, `~` expansion, missing/invalid config files, invalid host/model, missing ingest dir, `get_config()` caching)
 - `test_config_cli.py`: 8 tests for `rag-mcp-config init` utility (writes both files, skips existing, mkdir parents, cwd-only project, help/unknown verb)
 - `test_embeddings.py`: 2 tests (empty input, success passes host/model)
 - `test_store.py`: 5 tests (add+query, ID generation, validation, lifecycle, empty collection)
-- `test_server.py`: 12 tests (add_documents, query_documents happy+empty, list_collections, delete_collection, empty documents, validation, main config error guidance, main auto-ingest forwards host/model, main --help exits zero)
+- `test_server.py`: 16 tests (add_documents, query_documents happy+empty, list_collections, delete_collection, empty documents, validation, main config error guidance, main auto-ingest forwards host/model, main --help/readme/unknown-command behavior)
 - `test_ingest.py`: 6 tests (chunking short/long text, first-time sync, noop re-sync, changed-file re-sync, deleted-file re-sync)
 - `test_version.py`: 1 test (semver format)
 

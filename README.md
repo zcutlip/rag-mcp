@@ -104,6 +104,15 @@ usage without loading configuration or starting the MCP server. If startup
 configuration is missing or invalid, `rag-mcp` reports the error on stderr and
 suggests running `rag-mcp-config init`.
 
+To give an MCP client or coding agent the project guidance directly, run:
+
+```bash
+rag-mcp readme
+```
+
+This prints the README and exits without loading configuration or starting the
+MCP server.
+
 ## MCP Client Configuration
 
 Register `rag-mcp` as a server in your MCP client. The recommended setup

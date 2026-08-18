@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Project-local `.rag-mcp.toml` config, discovered by walking up from the current working directory. Relative paths resolve against the project root and are constrained to it.
 - `rag-mcp-config` CLI utility with `init` subcommand that writes starter global and project config files. Idempotent: skips existing files with a note.
 - `rag-mcp-config init` reports the path of each file it writes or skips.
+- `rag-mcp readme` prints the installed project README for agents and users without starting the MCP server.
 
 ### Changed
 
