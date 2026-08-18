@@ -5,8 +5,8 @@
 Provide a strict, project-isolated configuration model that prevents
 accidental sharing of vector-store data between unrelated projects.
 Configuration is loaded from a global TOML (`config.toml`) for machine-level
-Ollama defaults and a project-local TOML (`.rag-mcp.toml`) for per-project
-data settings, with `RAG_MCP_*` env vars as overrides.
+embedding-provider defaults and a project-local TOML (`.rag-mcp.toml`) for
+per-project data settings, with `RAG_MCP_*` env vars as overrides.
 
 ## Design principles
 
@@ -41,9 +41,9 @@ data settings, with `RAG_MCP_*` env vars as overrides.
 
 | Item | Decision |
 |---|---|
-| Global file | `config.toml` at `platformdirs.user_config_dir("rag-mcp")`; reads only `[ollama]` |
+| Global file | `config.toml` at `platformdirs.user_config_dir("rag-mcp")`; reads only `[embeddings]` |
 | Project file | `.rag-mcp.toml`, discovered by cwd walk-up |
-| Precedence | defaults < global `<ollama>` < project file < env vars |
+| Precedence | defaults < global `<embeddings>` < project file < env vars |
 | Project root | Directory containing the discovered `.rag-mcp.toml` |
 | Relative paths | Resolved against project root, must stay within it |
 | Global `[chroma]`/`[ingest]` | Ignored |
@@ -54,12 +54,12 @@ data settings, with `RAG_MCP_*` env vars as overrides.
 
 ### Global `config.toml`
 
-Holds machine-level Ollama defaults only. Located at
+Holds machine-level embedding-provider defaults only. Located at
 `platformdirs.user_config_dir("rag-mcp") / "config.toml"`. Override path
 with `RAG_MCP_CONFIG`.
 
 ```toml
-[ollama]
+[embeddings]
 host = "http://localhost:11434"
 model = "nomic-embed-text"
 ```
@@ -87,18 +87,18 @@ accepted. Add `.chroma/` (or whatever you chose) to `.gitignore`.
 | Var | Overrides |
 |---|---|
 | `RAG_MCP_CONFIG` | global file path |
-| `RAG_MCP_OLLAMA_HOST` | `ollama.host` (global or project) |
-| `RAG_MCP_OLLAMA_MODEL` | `ollama.model` (global or project) |
+| `RAG_MCP_EMBEDDINGS_HOST` | `embeddings.host` (global or project) |
+| `RAG_MCP_EMBEDDINGS_MODEL` | `embeddings.model` (global or project) |
 | `RAG_MCP_CHROMA_PERSIST_DIR` | `chroma.persist_dir` (project only) |
 | `RAG_MCP_INGEST_DIR` | `ingest.directory` (project only) |
 | `RAG_MCP_INGEST_COLLECTION` | `ingest.collection` (project only) |
 
-Precedence: defaults < global `<ollama>` < project file < env vars.
+Precedence: defaults < global `<embeddings>` < project file < env vars.
 
 ## Validation (fail fast, at `load_config()`)
 
-- `ollama.host` — valid URL, scheme `http`/`https`
-- `ollama.model` — non-empty string
+- `embeddings.host` — valid URL, scheme `http`/`https`
+- `embeddings.model` — non-empty string
 - `ingest.collection` — non-empty string
 - `chroma.persist_dir` — required; `~`-expanded; relative paths resolve
   against project root and must stay within it
@@ -117,9 +117,9 @@ Precedence: defaults < global `<ollama>` < project file < env vars.
   `~`, resolves absolute paths as-is, and for relative paths requires a
   project root, joins, resolves, and validates subpath containment.
 - `load_config(config_path=None, environ=os.environ)`:
-  - Loads global file; reads only `[ollama]`.
+  - Loads global file; reads only `[embeddings]`.
   - Discovers project file via cwd walk-up.
-  - Merges: `defaults < global[ollama] < project[ollama/chroma/ingest] < env`.
+  - Merges: `defaults < global[embeddings] < project[embeddings/chroma/ingest] < env`.
   - Resolves `persist_dir` and `ingest.directory` with `_resolve_path`.
   - Validates: host URL, model non-empty, `persist_dir` non-empty, ingest
     dir exists if set, collection non-empty.
@@ -147,9 +147,9 @@ Precedence: defaults < global `<ollama>` < project file < env vars.
 
 - Defaults with project file providing `persist_dir`
 - Missing `persist_dir` raises
-- Global `[ollama]` overrides defaults
+- Global `[embeddings]` overrides defaults
 - Global `[chroma]` ignored
-- Project `[ollama]` overrides global `[ollama]`
+- Project `[embeddings]` overrides global `[embeddings]`
 - Env overrides both files
 - Env provides `persist_dir` without project file
 - Project config discovered via cwd walk-up
