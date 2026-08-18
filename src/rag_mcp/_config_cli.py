@@ -6,7 +6,6 @@ from pathlib import Path
 
 import platformdirs
 
-
 GLOBAL_TEMPLATE = """\
 # Global config for rag-mcp. See README for full reference.
 
