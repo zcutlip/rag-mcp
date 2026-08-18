@@ -59,7 +59,7 @@ def test_init_creates_global_when_missing(monkeypatch, tmp_path, capsys):
     _no_global_config(monkeypatch, tmp_path)
     _no_project_config(monkeypatch, tmp_path)
 
-    code, out, err = _run_main(capsys, ["init"])
+    code, out, _ = _run_main(capsys, ["init"])
 
     assert code == 0
     global_path = tmp_path / "cfg" / "config.toml"
@@ -75,7 +75,7 @@ def test_init_creates_project_when_missing(monkeypatch, tmp_path, capsys):
     _no_global_config(monkeypatch, tmp_path)
     _no_project_config(monkeypatch, tmp_path)
 
-    code, out, err = _run_main(capsys, ["init"])
+    code, out, _ = _run_main(capsys, ["init"])
 
     assert code == 0
     global_path = tmp_path / "cfg" / "config.toml"
@@ -94,7 +94,7 @@ def test_init_skips_existing_global_with_note(monkeypatch, tmp_path, capsys):
     global_path.parent.mkdir()
     global_path.write_text('host = "http://custom"\n')
 
-    code, out, err = _run_main(capsys, ["init"])
+    code, out, _ = _run_main(capsys, ["init"])
 
     assert code == 0
     assert global_path.read_text() == 'host = "http://custom"\n'
@@ -109,7 +109,7 @@ def test_init_skips_existing_project_with_note(monkeypatch, tmp_path, capsys):
     project_path = tmp_path / "proj" / ".rag-mcp.toml"
     project_path.write_text('[chroma]\npersist_dir = "./custom"\n')
 
-    code, out, err = _run_main(capsys, ["init"])
+    code, out, _ = _run_main(capsys, ["init"])
 
     assert code == 0
     assert project_path.read_text() == '[chroma]\npersist_dir = "./custom"\n'
@@ -123,7 +123,7 @@ def test_init_creates_global_parent_dirs(monkeypatch, tmp_path, capsys):
     _no_project_config(monkeypatch, tmp_path)
     assert not (tmp_path / "cfg").exists()
 
-    code, out, err = _run_main(capsys, ["init"])
+    code, out, _ = _run_main(capsys, ["init"])
 
     assert code == 0
     assert (tmp_path / "cfg").is_dir()
@@ -139,7 +139,7 @@ def test_init_writes_project_to_cwd_no_walkup(monkeypatch, tmp_path, capsys):
     ancestor = tmp_path / ".rag-mcp.toml"
     ancestor.write_text('persist_dir = "./ancestor"\n')
 
-    code, out, err = _run_main(capsys, ["init"])
+    code, _, _ = _run_main(capsys, ["init"])
 
     assert code == 0
     project_path = tmp_path / "proj" / ".rag-mcp.toml"
@@ -149,7 +149,7 @@ def test_init_writes_project_to_cwd_no_walkup(monkeypatch, tmp_path, capsys):
 
 def test_help_exits_zero(capsys):
     """--help prints usage to stdout and exits 0."""
-    code, out, err = _run_main(capsys, ["--help"])
+    code, out, _ = _run_main(capsys, ["--help"])
 
     assert code == 0
     assert "usage" in out.lower()
@@ -157,7 +157,7 @@ def test_help_exits_zero(capsys):
 
 def test_unknown_verb_errors(capsys):
     """An unknown verb prints usage to stderr and exits 2."""
-    code, out, err = _run_main(capsys, ["bogus"])
+    code, _, err = _run_main(capsys, ["bogus"])
 
     assert code == 2
     assert "usage" in err.lower()
