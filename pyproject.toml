@@ -38,6 +38,7 @@ dev = [
 
 [project.scripts]
 rag-mcp = "rag_mcp.server:main"
+rag-mcp-config = "rag_mcp._config_cli:main"
 
 [project.urls]
 Homepage = "https://github.com/zcutlip/rag-mcp"
