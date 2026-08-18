@@ -1,4 +1,5 @@
 """MCP server exposing RAG tools backed by Ollama embeddings and ChromaDB."""
+import sys
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
@@ -114,7 +115,15 @@ def sync_directory(directory: str, collection: str = "default") -> str:
 def main() -> None:
     """Run the MCP server using stdio transport."""
     global store
-    config = get_config()
+    try:
+        config = get_config()
+    except ValueError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        print(
+            "Run 'rag-mcp-config init' to create starter config files.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     store = VectorStore(persist_dir=config.chroma_persist_dir)
     if config.ingest_dir:
         ingest.sync_directory(
