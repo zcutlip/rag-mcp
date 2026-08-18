@@ -16,7 +16,7 @@ Client (MCP) → server.py (MCPServer) → get_embeddings() → Ollama API
 - `server.py`: MCPServer entry point, defines 5 tools (add_documents, query_documents, list_collections, delete_collection, sync_directory); module-level `mcp` plus a lazy `store` built in `main()` and accessed via `get_store()`
 - `embeddings.py`: Ollama embedding client, `get_embeddings(texts, host, model)` with compatibility shim for SDK >=0.4 (host/model passed in, no `os.environ` access)
 - `store.py`: ChromaDB wrapper class `VectorStore` with add/query/upsert/get_all_metadata/delete_ids/list_collections/delete_collection operations
-- `ingest.py`: directory-to-vector-store sync (`iter_markdown_files`, `chunk_text`, `file_hash`, `sync_directory`). The one module that composes the other two — takes a `VectorStore` instance as a parameter (never a global) so it stays unit-testable
+- `ingest.py`: directory-to-vector-store sync (`iter_markdown_files`, `chunk_text`, `file_hash`, `sync_directory`). The one module that composes the other two — takes a `VectorStore` instance plus `embeddings_host`/`embeddings_model` as parameters (never globals) so it stays unit-testable
 - `_config_cli.py`: CLI for `rag-mcp-config init` utility, writes starter global and project config files
 - `__init__.py`: Package marker, exports `__version__`
 
@@ -28,7 +28,7 @@ Client (MCP) → server.py (MCPServer) → get_embeddings() → Ollama API
 5. For add: embeddings + documents stored in ChromaDB via `VectorStore.add()`
 6. For query: embeddings used to search ChromaDB via `VectorStore.query()`, results formatted and returned
 
-**Incremental sync design** (`ingest.sync_directory`): every chunk's metadata carries `source` (relative path), `content_hash` (sha256 of the whole file, identical across all chunks of that file), and `chunk_index`. Chunk IDs are deterministic (`source::chunk_index`), which makes `VectorStore.upsert` idempotent instead of duplicating rows on re-sync. Re-syncing an unchanged file costs zero Ollama calls — the hash comparison short-circuits before chunking/embedding. A file with fewer chunks than before has its orphaned trailing chunk IDs explicitly deleted (upsert alone can't shrink a document's chunk count). Files removed from disk are detected by diffing the sync pass's seen `source` set against everything already in the collection.
+**Incremental sync design** (`ingest.sync_directory`): every chunk's metadata carries `source` (relative path), `content_hash` (sha256 of the whole file, identical across all chunks of that file), and `chunk_index`. Chunk IDs are deterministic (`source::chunk_index`), which makes `VectorStore.upsert` idempotent instead of duplicating rows on re-sync. Re-syncing an unchanged file costs zero Ollama calls — the hash comparison short-circuits before chunking/embedding. A file with fewer chunks than before has its orphaned trailing chunk IDs explicitly deleted (upsert alone can't shrink a document's chunk count). Files removed from disk are detected by diffing the sync pass's seen `source` set against everything already in the collection. Both the `sync_directory` tool handler and the startup auto-ingest pull `embeddings_host`/`embeddings_model` from `get_config()` and pass them through to `sync_directory`.
 
 No dependency injection framework — direct instantiation with TOML + env configuration loaded by `config.py`.
 
@@ -46,7 +46,7 @@ src/rag_mcp/          # Source modules (src-layout)
 tests/                # Test suite (flat structure, no classes)
   test_config.py      # 23 tests for configuration loading (global + project + env)
   test_config_cli.py  # 8 tests for rag-mcp-config init utility
-  test_server.py      # 9 tests for MCP tools
+  test_server.py      # 12 tests for MCP tools
   test_embeddings.py  # 2 tests for embedding client
   test_store.py       # 5 tests for vector store
   test_ingest.py      # 6 tests for directory sync
@@ -159,12 +159,12 @@ Global TOML keys: `[embeddings] host`/`model`. Project TOML keys: `[embeddings]`
 
 **Framework:** pytest
 
-**Test count:** 54 tests total
+**Test count:** 57 tests total
 - `test_config.py`: 23 tests (defaults, global+project+env precedence, cwd walk-up discovery, relative-path resolution, subpath constraint, `~` expansion, missing/invalid config files, invalid host/model, missing ingest dir, `get_config()` caching)
 - `test_config_cli.py`: 8 tests for `rag-mcp-config init` utility (writes both files, skips existing, mkdir parents, cwd-only project, help/unknown verb)
 - `test_embeddings.py`: 2 tests (empty input, success passes host/model)
 - `test_store.py`: 5 tests (add+query, ID generation, validation, lifecycle, empty collection)
-- `test_server.py`: 9 tests (add_documents, query_documents happy+empty, list_collections, delete_collection, empty documents, validation)
+- `test_server.py`: 12 tests (add_documents, query_documents happy+empty, list_collections, delete_collection, empty documents, validation, main config error guidance, main auto-ingest forwards host/model, main --help exits zero)
 - `test_ingest.py`: 6 tests (chunking short/long text, first-time sync, noop re-sync, changed-file re-sync, deleted-file re-sync)
 - `test_version.py`: 1 test (semver format)
 
