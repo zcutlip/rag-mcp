@@ -79,7 +79,7 @@ def test_query_documents_no_results(mock_get_store, mock_get_embeddings, mock_ge
     from rag_mcp.server import query_documents
 
     result = query_documents(query="nothing")
-    assert result == "No matching documents found."
+    assert result == {"results": [], "sources": {}}
 
 
 @patch("rag_mcp.server.get_store")
