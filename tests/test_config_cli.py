@@ -5,7 +5,6 @@ import pytest
 
 from rag_mcp import _config_cli
 
-
 GLOBAL_TEMPLATE = """\
 # Global config for rag-mcp. See README for full reference.
 
