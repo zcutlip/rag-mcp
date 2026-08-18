@@ -10,10 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - TOML-based configuration file with `RAG_MCP_*` environment variable overrides and fail-fast validation.
+- Project-local `.rag-mcp.toml` config, discovered by walking up from the current working directory. Relative paths resolve against the project root and are constrained to it.
 
 ### Changed
 
 - **Breaking:** Replaced the `OLLAMA_HOST`, `OLLAMA_MODEL`, `CHROMA_PERSIST_DIR`, and `RAG_INGEST_DIR` environment variables with `RAG_MCP_*`-prefixed names (see the README).
+- **Breaking:** `chroma.persist_dir` is now required; it no longer defaults to a platform user-data directory. Configure it in `.rag-mcp.toml` or via `RAG_MCP_CHROMA_PERSIST_DIR`.
+- **Breaking:** Global `config.toml` reads only `[ollama]` defaults; `[chroma]` and `[ingest]` keys there are ignored. Project-specific data belongs in `.rag-mcp.toml`.
 
 ## [0.1.0] - 2026-08-15
 
