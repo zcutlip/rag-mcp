@@ -12,7 +12,7 @@ Client (MCP) → server.py (MCPServer) → get_embeddings() → Ollama API
 ```
 
 **Module responsibilities:**
-- `config.py`: `Config` frozen dataclass plus `load_config()`/`get_config()`. Loads a TOML config file with `RAG_MCP_*` env overrides and validates eagerly (fail fast)
+- `config.py`: `Config` frozen dataclass plus `load_config()`/`get_config()`. Loads a global `config.toml` (only `[ollama]`) and a project `.rag-mcp.toml` (discovered by cwd walk-up) with `RAG_MCP_*` env overrides. Resolves relative paths in the project file against the project root and constrains them to it. Validates eagerly (fail fast).
 - `server.py`: MCPServer entry point, defines 5 tools (add_documents, query_documents, list_collections, delete_collection, sync_directory); module-level `mcp` plus a lazy `store` built in `main()` and accessed via `get_store()`
 - `embeddings.py`: Ollama embedding client, `get_embeddings(texts, host, model)` with compatibility shim for SDK >=0.4 (host/model passed in, no `os.environ` access)
 - `store.py`: ChromaDB wrapper class `VectorStore` with add/query/upsert/get_all_metadata/delete_ids/list_collections/delete_collection operations
@@ -42,7 +42,7 @@ src/rag_mcp/          # Source modules (src-layout)
   ingest.py           # Markdown directory sync
   __init__.py         # Package marker (exports __version__)
 tests/                # Test suite (flat structure, no classes)
-  test_config.py      # 10 tests for configuration loading
+  test_config.py      # 23 tests for configuration loading (global + project + env)
   test_server.py      # 9 tests for MCP tools
   test_embeddings.py  # 2 tests for embedding client
   test_store.py       # 5 tests for vector store
@@ -50,6 +50,7 @@ tests/                # Test suite (flat structure, no classes)
   test_version.py     # 1 test for package version
 docs/                 # Current specs
 docs/archive/         # Completed/superseded specs, named YYYY-MM-DD-<topic>-spec.md
+.rag-mcp.toml         # Optional project-local config (chromadb + ingest, version-controllable)
 ```
 
 ## Development Commands
@@ -78,17 +79,17 @@ pipx install .
 
 **Type hints:** Full type annotations on all function signatures. Use `list[str]` not `List[str]` (Python 3.10+). Return types explicit.
 
-**Configuration:** Loaded by `config.py` from a TOML file with `RAG_MCP_*` env overrides. Precedence: defaults < config file < env vars.
+**Configuration:** Loaded by `config.py` from a global `config.toml` (only `[ollama]`) and a project `.rag-mcp.toml` (discovered by cwd walk-up) with `RAG_MCP_*` env overrides. Precedence: defaults < global file < project file < env vars.
 
-Environment variables (all optional, override the config file):
-- `RAG_MCP_CONFIG` — explicit config file path (default: `platformdirs.user_config_dir("rag-mcp")/config.toml`)
+Environment variables (all optional overrides):
+- `RAG_MCP_CONFIG` — explicit global config file path (default: `platformdirs.user_config_dir("rag-mcp")/config.toml`)
 - `RAG_MCP_OLLAMA_HOST` (default: `http://localhost:11434`) — Ollama API endpoint
 - `RAG_MCP_OLLAMA_MODEL` (default: `nomic-embed-text`) — Embedding model name
-- `RAG_MCP_CHROMA_PERSIST_DIR` (default: platform user-data dir) — ChromaDB persistence directory
+- `RAG_MCP_CHROMA_PERSIST_DIR` (required) — ChromaDB persistence directory; must be set in `.rag-mcp.toml` or this env var
 - `RAG_MCP_INGEST_DIR` (unset by default) — directory auto-ingested at startup via `sync_directory`
 - `RAG_MCP_INGEST_COLLECTION` (default: `default`) — collection for the startup auto-ingest
 
-TOML keys mirror the vars: `[ollama] host`/`model`, `[chroma] persist_dir`, `[ingest] directory`/`collection`.
+Global TOML keys: `[ollama] host`/`model`. Project TOML keys: `[chroma] persist_dir`, `[ingest] directory`/`collection`. Relative paths in the project file resolve against the project root and must stay within it.
 
 **Error handling:**
 - Validation errors raise `ValueError` with descriptive messages (e.g., mismatched list lengths)
@@ -128,7 +129,7 @@ TOML keys mirror the vars: `[ollama] host`/`model`, `[chroma] persist_dir`, `[in
 - `.pre-commit-config.yaml` — Lint/format hooks (flake8, autopep8, isort, pyupgrade, shellcheck)
 
 **Key modules:**
-- `src/rag_mcp/config.py` — `Config` dataclass, `load_config()`/`get_config()` with TOML + env validation
+- `src/rag_mcp/config.py` — `Config` dataclass, `load_config()`/`get_config()` with global+project TOML + env validation; resolves relative paths against project root
 - `src/rag_mcp/server.py` — MCPServer server, 5 tool definitions, `get_store()`/`get_config()` wiring
 - `src/rag_mcp/embeddings.py` — `get_embeddings(texts, host, model)` with Ollama SDK compatibility shim
 - `src/rag_mcp/store.py` — `VectorStore` class wrapping `chromadb.PersistentClient`
@@ -154,8 +155,8 @@ TOML keys mirror the vars: `[ollama] host`/`model`, `[chroma] persist_dir`, `[in
 
 **Framework:** pytest
 
-**Test count:** 33 tests total
-- `test_config.py`: 10 tests (defaults, TOML parsing, env-over-file precedence, `~` expansion, missing/invalid config file, invalid host/model, missing ingest dir, `get_config()` caching)
+**Test count:** 46 tests total
+- `test_config.py`: 23 tests (defaults, global+project+env precedence, cwd walk-up discovery, relative-path resolution, subpath constraint, `~` expansion, missing/invalid config files, invalid host/model, missing ingest dir, `get_config()` caching)
 - `test_embeddings.py`: 2 tests (empty input, success passes host/model)
 - `test_store.py`: 5 tests (add+query, ID generation, validation, lifecycle, empty collection)
 - `test_server.py`: 9 tests (add_documents, query_documents happy+empty, list_collections, delete_collection, empty documents, validation)
