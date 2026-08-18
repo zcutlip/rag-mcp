@@ -66,6 +66,8 @@ def test_init_creates_global_when_missing(monkeypatch, tmp_path, capsys):
     assert global_path.read_text() == GLOBAL_TEMPLATE
     project_path = tmp_path / "proj" / ".rag-mcp.toml"
     assert project_path.read_text() == PROJECT_TEMPLATE
+    assert str(global_path) in out
+    assert str(project_path) in out
 
 
 def test_init_creates_project_when_missing(monkeypatch, tmp_path, capsys):
@@ -76,8 +78,12 @@ def test_init_creates_project_when_missing(monkeypatch, tmp_path, capsys):
     code, out, err = _run_main(capsys, ["init"])
 
     assert code == 0
+    global_path = tmp_path / "cfg" / "config.toml"
+    assert global_path.read_text() == GLOBAL_TEMPLATE
     project_path = tmp_path / "proj" / ".rag-mcp.toml"
     assert project_path.read_text() == PROJECT_TEMPLATE
+    assert str(global_path) in out
+    assert str(project_path) in out
 
 
 def test_init_skips_existing_global_with_note(monkeypatch, tmp_path, capsys):
@@ -122,6 +128,8 @@ def test_init_creates_global_parent_dirs(monkeypatch, tmp_path, capsys):
     assert code == 0
     assert (tmp_path / "cfg").is_dir()
     assert (tmp_path / "cfg" / "config.toml").is_file()
+    assert str(tmp_path / "cfg" / "config.toml") in out
+    assert str(tmp_path / "proj" / ".rag-mcp.toml") in out
 
 
 def test_init_writes_project_to_cwd_no_walkup(monkeypatch, tmp_path, capsys):
