@@ -12,7 +12,7 @@ Client (MCP) → server.py (MCPServer) → get_embeddings() → Ollama API
 ```
 
 **Module responsibilities:**
-- `config.py`: `Config` frozen dataclass plus `load_config()`/`get_config()`. Loads a global `config.toml` (only `[ollama]`) and a project `.rag-mcp.toml` (discovered by cwd walk-up) with `RAG_MCP_*` env overrides. Resolves relative paths in the project file against the project root and constrains them to it. Validates eagerly (fail fast).
+- `config.py`: `Config` frozen dataclass plus `load_config()`/`get_config()`. Loads a global `config.toml` (only `[embeddings]`) and a project `.rag-mcp.toml` (discovered by cwd walk-up) with `RAG_MCP_*` env overrides. Resolves relative paths in the project file against the project root and constrains them to it. Validates eagerly (fail fast).
 - `server.py`: MCPServer entry point, defines 5 tools (add_documents, query_documents, list_collections, delete_collection, sync_directory); module-level `mcp` plus a lazy `store` built in `main()` and accessed via `get_store()`
 - `embeddings.py`: Ollama embedding client, `get_embeddings(texts, host, model)` with compatibility shim for SDK >=0.4 (host/model passed in, no `os.environ` access)
 - `store.py`: ChromaDB wrapper class `VectorStore` with add/query/upsert/get_all_metadata/delete_ids/list_collections/delete_collection operations
@@ -22,7 +22,7 @@ Client (MCP) → server.py (MCPServer) → get_embeddings() → Ollama API
 **Data flow:**
 1. `main()` loads config via `get_config()` (fail fast) and builds the `VectorStore` from `chroma_persist_dir`
 2. Client calls `add_documents` or `query_documents` via MCP stdio
-3. Tool handler fetches `ollama_host`/`ollama_model` from `get_config()` and calls `get_embeddings()`
+3. Tool handler fetches `embeddings_host`/`embeddings_model` from `get_config()` and calls `get_embeddings()`
 4. `get_embeddings()` calls Ollama API with the given host/model
 5. For add: embeddings + documents stored in ChromaDB via `VectorStore.add()`
 6. For query: embeddings used to search ChromaDB via `VectorStore.query()`, results formatted and returned
@@ -79,17 +79,17 @@ pipx install .
 
 **Type hints:** Full type annotations on all function signatures. Use `list[str]` not `List[str]` (Python 3.10+). Return types explicit.
 
-**Configuration:** Loaded by `config.py` from a global `config.toml` (only `[ollama]`) and a project `.rag-mcp.toml` (discovered by cwd walk-up) with `RAG_MCP_*` env overrides. Precedence: defaults < global file < project file < env vars.
+**Configuration:** Loaded by `config.py` from a global `config.toml` (only `[embeddings]`) and a project `.rag-mcp.toml` (discovered by cwd walk-up) with `RAG_MCP_*` env overrides. Precedence: defaults < global file < project file < env vars.
 
 Environment variables (all optional overrides):
 - `RAG_MCP_CONFIG` — explicit global config file path (default: `platformdirs.user_config_dir("rag-mcp")/config.toml`)
-- `RAG_MCP_OLLAMA_HOST` (default: `http://localhost:11434`) — Ollama API endpoint
-- `RAG_MCP_OLLAMA_MODEL` (default: `nomic-embed-text`) — Embedding model name
+- `RAG_MCP_EMBEDDINGS_HOST` (default: `http://localhost:11434`) — Embedding provider API endpoint
+- `RAG_MCP_EMBEDDINGS_MODEL` (default: `nomic-embed-text`) — Embedding model name
 - `RAG_MCP_CHROMA_PERSIST_DIR` (required) — ChromaDB persistence directory; must be set in `.rag-mcp.toml` or this env var
 - `RAG_MCP_INGEST_DIR` (unset by default) — directory auto-ingested at startup via `sync_directory`
 - `RAG_MCP_INGEST_COLLECTION` (default: `default`) — collection for the startup auto-ingest
 
-Global TOML keys: `[ollama] host`/`model`. Project TOML keys: `[chroma] persist_dir`, `[ingest] directory`/`collection`. Relative paths in the project file resolve against the project root and must stay within it.
+Global TOML keys: `[embeddings] host`/`model`. Project TOML keys: `[embeddings]` (optional override), `[chroma] persist_dir`, `[ingest] directory`/`collection`. Relative paths in the project file resolve against the project root and must stay within it.
 
 **Error handling:**
 - Validation errors raise `ValueError` with descriptive messages (e.g., mismatched list lengths)
