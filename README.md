@@ -85,6 +85,20 @@ must be set in `.rag-mcp.toml` or via `RAG_MCP_CHROMA_PERSIST_DIR`.
 | `RAG_MCP_INGEST_DIR` | unset (skip startup sync) | Directory of markdown files to auto-sync on server startup |
 | `RAG_MCP_INGEST_COLLECTION` | `default` | Collection to sync `RAG_MCP_INGEST_DIR` into |
 
+## Initialize a starter config
+
+The `rag-mcp-config` utility writes starter config files for both global and project-local settings:
+
+```bash
+rag-mcp-config init
+```
+
+This creates:
+- **Global config** at the platform default location (e.g., `~/.config/rag-mcp/config.toml` on Linux) with `[embeddings]` defaults
+- **Project config** at `<cwd>/.rag-mcp.toml` with `[chroma]` and `[ingest]` templates (including commented examples)
+
+If either file already exists, it's skipped with a note. The command is idempotent — safe to run multiple times.
+
 ## MCP Client Configuration
 
 Register `rag-mcp` as a server in your MCP client. The recommended setup
