@@ -210,3 +210,77 @@ def test_main_help_exits_zero_without_starting(mock_run, mock_get_config, capsys
     assert "usage" in captured.out + captured.err
     mock_get_config.assert_not_called()
     mock_run.assert_not_called()
+
+
+# The readme command reads the packaged README through a module-level metadata
+# lookup seam (rag_mcp.server._read_readme) so tests can mock it cleanly.
+@patch("rag_mcp.server.get_config")
+@patch("rag_mcp.server.mcp.run")
+@patch("rag_mcp.server._read_readme", create=True)
+def test_main_readme_prints_packaged_readme(mock_read, mock_run, mock_get_config, capsys):
+    """main(["readme"]) prints the packaged README to stdout, exits 0, no startup."""
+    mock_read.return_value = "# rag-mcp\n\nRAG MCP server backed by Ollama embeddings and ChromaDB."
+
+    from rag_mcp.server import main
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["readme"])
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 0
+    assert "# rag-mcp" in captured.out
+    mock_read.assert_called_once()
+    mock_get_config.assert_not_called()
+    mock_run.assert_not_called()
+
+
+@patch("rag_mcp.server.get_config")
+@patch("rag_mcp.server.mcp.run")
+def test_main_help_includes_readme_command(mock_run, mock_get_config, capsys):
+    """main(["--help"]) lists the readme command in usage output without startup."""
+    from rag_mcp.server import main
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--help"])
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 0
+    assert "readme" in captured.out + captured.err
+    mock_get_config.assert_not_called()
+    mock_run.assert_not_called()
+
+
+@patch("rag_mcp.server.get_config")
+@patch("rag_mcp.server.mcp.run")
+def test_main_unknown_command_exits_with_usage(mock_run, mock_get_config, capsys):
+    """main() with an unknown command exits 2 with usage on stderr, no startup."""
+    from rag_mcp.server import main
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["frobnicate"])
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 2
+    assert "usage" in captured.err
+    mock_get_config.assert_not_called()
+    mock_run.assert_not_called()
+
+
+@patch("rag_mcp.server.get_config")
+@patch("rag_mcp.server.mcp.run")
+@patch("rag_mcp.server._read_readme", create=True)
+def test_main_readme_metadata_missing_reports_error(
+    mock_read, mock_run, mock_get_config, capsys
+):
+    """main(["readme"]) without packaged README metadata exits nonzero with a helpful error."""
+    mock_read.return_value = None
+
+    from rag_mcp.server import main
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["readme"])
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 1
+    assert "Error" in captured.err
+    assert "README" in captured.err
+    assert "Traceback" not in captured.err
+    mock_read.assert_called_once()
+    mock_get_config.assert_not_called()
+    mock_run.assert_not_called()
