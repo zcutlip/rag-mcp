@@ -6,7 +6,7 @@ import pytest
 
 def _test_config():
     """A config stub for tools that fetch host/model."""
-    return MagicMock(ollama_host="http://localhost:11434", ollama_model="nomic-embed-text")
+    return MagicMock(embeddings_host="http://localhost:11434", embeddings_model="nomic-embed-text")
 
 
 @patch("rag_mcp.server.get_config")

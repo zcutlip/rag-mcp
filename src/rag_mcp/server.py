@@ -3,7 +3,7 @@ from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 
-import rag_mcp.ingest as ingest
+from rag_mcp import ingest
 from rag_mcp.config import get_config
 from rag_mcp.embeddings import get_embeddings
 from rag_mcp.store import VectorStore
@@ -36,7 +36,7 @@ def add_documents(
         raise ValueError("metadatas must have the same length as documents")
 
     cfg = get_config()
-    embeddings = get_embeddings(documents, cfg.ollama_host, cfg.ollama_model)
+    embeddings = get_embeddings(documents, cfg.embeddings_host, cfg.embeddings_model)
     get_store().add(
         collection=collection,
         documents=documents,
@@ -54,7 +54,7 @@ def query_documents(query: str, n_results: int = 5, collection: str = "default")
         raise ValueError("n_results must be >= 1")
 
     cfg = get_config()
-    query_embedding = get_embeddings([query], cfg.ollama_host, cfg.ollama_model)[0]
+    query_embedding = get_embeddings([query], cfg.embeddings_host, cfg.embeddings_model)[0]
     results = get_store().query(
         collection=collection,
         query_embedding=query_embedding,

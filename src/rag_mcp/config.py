@@ -11,15 +11,15 @@ import platformdirs
 
 @dataclass(frozen=True)
 class Config:
-    ollama_host: str
-    ollama_model: str
+    embeddings_host: str
+    embeddings_model: str
     chroma_persist_dir: str
     ingest_dir: str | None
     ingest_collection: str
 
 
-DEFAULT_OLLAMA_HOST = "http://localhost:11434"
-DEFAULT_OLLAMA_MODEL = "nomic-embed-text"
+DEFAULT_EMBEDDINGS_HOST = "http://localhost:11434"
+DEFAULT_EMBEDDINGS_MODEL = "nomic-embed-text"
 DEFAULT_INGEST_COLLECTION = "default"
 
 PROJECT_CONFIG_FILENAME = ".rag-mcp.toml"
@@ -43,7 +43,7 @@ def _parse_toml(path: str) -> dict:
 def _validate_host(host: str) -> None:
     parsed = urlparse(host)
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
-        raise ValueError(f"ollama.host must be a valid http(s) URL: {host}")
+        raise ValueError(f"embeddings.host must be a valid http(s) URL: {host}")
 
 
 def _find_project_config_path(cwd: str | None = None) -> str | None:
@@ -106,9 +106,9 @@ def load_config(
 ) -> Config:
     """Load configuration from a global TOML, project ``.rag-mcp.toml``, and env overrides.
 
-    The global file contributes only ``[ollama]`` (host/model). The project
+    The global file contributes only ``[embeddings]`` (host/model). The project
     file, discovered by walking up from the current working directory,
-    contributes ``[ollama]``, ``[chroma]``, and ``[ingest]``. Environment
+    contributes ``[embeddings]``, ``[chroma]``, and ``[ingest]``. Environment
     variables override anything from the files.
 
     Precedence: built-in defaults < global file < project file < env vars.
@@ -128,7 +128,7 @@ def load_config(
             ``chroma.persist_dir`` is not configured.
     """
     global_data = _load_global_config(config_path, environ)
-    ollama_from_global = global_data.get("ollama", {})
+    embeddings_from_global = global_data.get("embeddings", {})
 
     project_path = _find_project_config_path()
     project_data: dict = {}
@@ -137,14 +137,14 @@ def load_config(
         project_data = _parse_toml(project_path)
         project_root = str(Path(project_path).parent.resolve())
 
-    ollama = {
-        "host": DEFAULT_OLLAMA_HOST,
-        "model": DEFAULT_OLLAMA_MODEL,
-        **ollama_from_global,
-        **project_data.get("ollama", {}),
+    embeddings = {
+        "host": DEFAULT_EMBEDDINGS_HOST,
+        "model": DEFAULT_EMBEDDINGS_MODEL,
+        **embeddings_from_global,
+        **project_data.get("embeddings", {}),
     }
-    ollama_host = environ.get("RAG_MCP_OLLAMA_HOST", ollama["host"])
-    ollama_model = environ.get("RAG_MCP_OLLAMA_MODEL", ollama["model"])
+    embeddings_host = environ.get("RAG_MCP_EMBEDDINGS_HOST", embeddings["host"])
+    embeddings_model = environ.get("RAG_MCP_EMBEDDINGS_MODEL", embeddings["model"])
 
     chroma = project_data.get("chroma", {})
     ingest = project_data.get("ingest", {})
@@ -166,9 +166,9 @@ def load_config(
         ingest.get("collection", DEFAULT_INGEST_COLLECTION),
     )
 
-    _validate_host(ollama_host)
-    if not ollama_model or not ollama_model.strip():
-        raise ValueError("ollama.model must be a non-empty string")
+    _validate_host(embeddings_host)
+    if not embeddings_model or not embeddings_model.strip():
+        raise ValueError("embeddings.model must be a non-empty string")
     if not persist_dir or not persist_dir.strip():
         raise ValueError(
             "chroma.persist_dir must be configured in .rag-mcp.toml "
@@ -180,8 +180,8 @@ def load_config(
         raise ValueError(f"ingest.directory does not exist: {ingest_dir}")
 
     return Config(
-        ollama_host=ollama_host,
-        ollama_model=ollama_model,
+        embeddings_host=embeddings_host,
+        embeddings_model=embeddings_model,
         chroma_persist_dir=persist_dir,
         ingest_dir=ingest_dir,
         ingest_collection=ingest_collection,
