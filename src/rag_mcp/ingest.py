@@ -36,7 +36,12 @@ def file_hash(text: str) -> str:
 
 
 def sync_directory(
-    store: VectorStore, directory: str, collection: str = "default"
+    store: VectorStore,
+    directory: str,
+    collection: str = "default",
+    *,
+    embeddings_host: str,
+    embeddings_model: str,
 ) -> dict[str, int]:
     """Incrementally sync markdown files under `directory` into `collection`.
 
@@ -96,7 +101,7 @@ def sync_directory(
             counts["deleted"] += 1
 
     if staged_ids:
-        embeddings = get_embeddings(staged_docs)
+        embeddings = get_embeddings(staged_docs, embeddings_host, embeddings_model)
         store.upsert(
             collection=collection,
             documents=staged_docs,

@@ -1,4 +1,5 @@
 """MCP server exposing RAG tools backed by Ollama embeddings and ChromaDB."""
+import argparse
 import sys
 from typing import Any
 
@@ -104,7 +105,14 @@ def sync_directory(directory: str, collection: str = "default") -> str:
 
     Adds new/changed files, removes deleted ones.
     """
-    result = ingest.sync_directory(get_store(), directory, collection=collection)
+    config = get_config()
+    result = ingest.sync_directory(
+        get_store(),
+        directory,
+        collection=collection,
+        embeddings_host=config.embeddings_host,
+        embeddings_model=config.embeddings_model,
+    )
     return (
         f"Synced '{directory}' into collection '{collection}': "
         f"{result['added']} added, {result['updated']} updated, "
@@ -112,9 +120,15 @@ def sync_directory(directory: str, collection: str = "default") -> str:
     )
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     """Run the MCP server using stdio transport."""
     global store
+    parser = argparse.ArgumentParser(
+        prog="rag-mcp",
+        description="Run the rag-mcp MCP server.",
+    )
+    parser.parse_args(argv)
+
     try:
         config = get_config()
     except ValueError as error:
@@ -127,7 +141,11 @@ def main() -> None:
     store = VectorStore(persist_dir=config.chroma_persist_dir)
     if config.ingest_dir:
         ingest.sync_directory(
-            store, config.ingest_dir, collection=config.ingest_collection
+            store,
+            config.ingest_dir,
+            collection=config.ingest_collection,
+            embeddings_host=config.embeddings_host,
+            embeddings_model=config.embeddings_model,
         )
     mcp.run()
 
