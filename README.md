@@ -48,7 +48,7 @@ Holds machine-level Ollama defaults only. Located at
 `~/.config/rag-mcp/config.toml` on Linux. Override with `RAG_MCP_CONFIG`.
 
 ```toml
-[ollama]
+[embeddings]
 host = "http://localhost:11434"
 model = "nomic-embed-text"
 ```
@@ -79,8 +79,8 @@ must be set in `.rag-mcp.toml` or via `RAG_MCP_CHROMA_PERSIST_DIR`.
 | Variable | Default | Description |
 |---|---|---|
 | `RAG_MCP_CONFIG` | platform config dir | Explicit global config file path |
-| `RAG_MCP_OLLAMA_HOST` | `http://localhost:11434` | Ollama API endpoint |
-| `RAG_MCP_OLLAMA_MODEL` | `nomic-embed-text` | Embedding model name |
+| `RAG_MCP_EMBEDDINGS_HOST` | `http://localhost:11434` | Embedding provider API endpoint |
+| `RAG_MCP_EMBEDDINGS_MODEL` | `nomic-embed-text` | Embedding model name |
 | `RAG_MCP_CHROMA_PERSIST_DIR` | required | ChromaDB persistence directory |
 | `RAG_MCP_INGEST_DIR` | unset (skip startup sync) | Directory of markdown files to auto-sync on server startup |
 | `RAG_MCP_INGEST_COLLECTION` | `default` | Collection to sync `RAG_MCP_INGEST_DIR` into |
