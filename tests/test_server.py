@@ -41,7 +41,7 @@ def test_add_documents_tool(mock_get_store, mock_get_embeddings, mock_get_config
 @patch("rag_mcp.server.get_embeddings")
 @patch("rag_mcp.server.get_store")
 def test_query_documents_tool(mock_get_store, mock_get_embeddings, mock_get_config):
-    """query_documents returns formatted results with document text and IDs."""
+    """query_documents returns structured results with content, distance, and metadata."""
     mock_get_config.return_value = _test_config()
     mock_store = MagicMock()
     mock_get_store.return_value = mock_store
@@ -50,14 +50,20 @@ def test_query_documents_tool(mock_get_store, mock_get_embeddings, mock_get_conf
         "documents": [["# Heading\nContent one."]],
         "ids": [["doc1"]],
         "distances": [[0.05]],
-        "metadatas": [[{"key": "val"}]],
+        "metadatas": [[{"source": "test.md", "chunk_index": 0, "content_hash": "abc123"}]],
     }
 
     from rag_mcp.server import query_documents
 
     result = query_documents(query="heading", n_results=1)
-    assert "Content one." in result
-    assert "doc1" in result
+    assert isinstance(result, dict)
+    assert "results" in result
+    assert "sources" in result
+    assert len(result["results"]) == 1
+    assert "Content one." in result["results"][0]["content"]
+    assert result["results"][0]["distance"] == 0.05
+    assert result["results"][0]["rank"] == 1
+    assert result["results"][0]["metadata"]["source"] == "test.md"
 
 
 @patch("rag_mcp.server.get_config")
