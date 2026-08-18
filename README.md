@@ -20,11 +20,12 @@ Copy-paste this prompt to set up `rag-mcp` in a project:
 ```markdown
 Set up the `rag-mcp` MCP server for this project:
 
-1. Identify the project root (where `.rag-mcp.toml` should live).
-2. Install `rag-mcp`. If you're working from this repo's checkout, use `pipx install -e .`; otherwise use the documented package install.
-3. From the project root, run `rag-mcp-config init` early — prefer it over hand-crafting config files.
-4. Run `rag-mcp readme` and follow the README's remaining setup and client-specific guidance.
+1. Install `rag-mcp`: pipx install git+https://github.com/zcutlip/rag-mcp.git
+2. From the project root, run `rag-mcp-config init` early — prefer it over hand-crafting config files.
+3. Run `rag-mcp readme` and follow the README's remaining setup and client-specific guidance.
+4. Offer to edit the project-local .rag-mcp.toml config file for the user.
 5. Verify or reload the MCP connection.
+6. Suggest to the user a few questions they can ask of the agent to tell if the rag-mcp server is functioning.
 
 > Note: the README and the `rag://readme` resource are server setup documentation, not corpus content. For questions about the indexed corpus, use the `query_documents` tool.
 ```
