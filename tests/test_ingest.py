@@ -35,7 +35,13 @@ def test_sync_first_time(tmp_path):
 
     store = VectorStore(persist_dir=str(tmp_path / "chroma"))
     with patch("rag_mcp.ingest.get_embeddings", side_effect=_fake_embeddings) as mock_emb:
-        result = sync_directory(store, str(docs_dir), collection="test")
+        result = sync_directory(
+            store,
+            str(docs_dir),
+            collection="test",
+            embeddings_host=EMBEDDINGS_HOST,
+            embeddings_model=EMBEDDINGS_MODEL,
+        )
 
     assert result == {"added": 1, "updated": 0, "deleted": 0, "unchanged": 0}
     mock_emb.assert_called_once_with(["hello world"], EMBEDDINGS_HOST, EMBEDDINGS_MODEL)
@@ -61,7 +67,13 @@ def test_sync_noop_resync(tmp_path):
         )
 
     with patch("rag_mcp.ingest.get_embeddings", side_effect=_fake_embeddings) as mock_emb:
-        result = sync_directory(store, str(docs_dir), collection="test")
+        result = sync_directory(
+            store,
+            str(docs_dir),
+            collection="test",
+            embeddings_host=EMBEDDINGS_HOST,
+            embeddings_model=EMBEDDINGS_MODEL,
+        )
 
     assert result == {"added": 0, "updated": 0, "deleted": 0, "unchanged": 1}
     mock_emb.assert_not_called()
@@ -88,7 +100,13 @@ def test_sync_changed_file_resync(tmp_path):
     md_file.write_text("goodbye world, this content is different")
 
     with patch("rag_mcp.ingest.get_embeddings", side_effect=_fake_embeddings) as mock_emb:
-        result = sync_directory(store, str(docs_dir), collection="test")
+        result = sync_directory(
+            store,
+            str(docs_dir),
+            collection="test",
+            embeddings_host=EMBEDDINGS_HOST,
+            embeddings_model=EMBEDDINGS_MODEL,
+        )
 
     assert result == {"added": 0, "updated": 1, "deleted": 0, "unchanged": 0}
     mock_emb.assert_called_once_with(
@@ -120,7 +138,13 @@ def test_sync_deleted_file_resync(tmp_path):
     md_file.unlink()
 
     with patch("rag_mcp.ingest.get_embeddings", side_effect=_fake_embeddings):
-        result = sync_directory(store, str(docs_dir), collection="test")
+        result = sync_directory(
+            store,
+            str(docs_dir),
+            collection="test",
+            embeddings_host=EMBEDDINGS_HOST,
+            embeddings_model=EMBEDDINGS_MODEL,
+        )
 
     assert result == {"added": 0, "updated": 0, "deleted": 1, "unchanged": 0}
     meta = store.get_all_metadata("test")
