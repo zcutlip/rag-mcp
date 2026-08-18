@@ -170,7 +170,7 @@ def test_main_config_error_exits_with_guidance(mock_get_config, capsys):
     from rag_mcp.server import main
 
     with pytest.raises(SystemExit) as exc_info:
-        main()
+        main([])
     captured = capsys.readouterr()
     assert exc_info.value.code == 1
     assert "chroma.persist_dir must be configured" in captured.err
@@ -190,7 +190,7 @@ def test_main_auto_ingest_forwards_host_model(
 
     from rag_mcp.server import main
 
-    main()
+    main([])
     mock_sync.assert_called_once()
     _, kwargs = mock_sync.call_args
     assert kwargs["embeddings_host"] == "http://localhost:11434"
