@@ -6,61 +6,126 @@ import pytest
 import rag_mcp.config as config
 
 
-def _write_config(tmp_path: Path, text: str) -> str:
-    """Write text to tmp_path/config.toml and return its path."""
-    path = tmp_path / "config.toml"
+def _write_project_config(directory: Path, text: str) -> Path:
+    """Write a .rag-mcp.toml in ``directory`` and return its path."""
+    path = directory / config.PROJECT_CONFIG_FILENAME
     path.write_text(text)
-    return str(path)
+    return path
+
+
+def _write_global_config(directory: Path, text: str) -> Path:
+    """Write a config.toml under ``directory`` and return its path."""
+    path = directory / "config.toml"
+    path.write_text(text)
+    return path
 
 
 def _no_default_config(monkeypatch, tmp_path: Path) -> None:
-    """Point the default config location at an empty tmp dir."""
+    """Point the default global config location at an empty tmp dir."""
     monkeypatch.setattr(
         config.platformdirs, "user_config_dir", lambda *a, **k: str(tmp_path / "cfg")
     )
 
 
-def test_load_config_defaults(monkeypatch, tmp_path):
-    """No config file and no env vars yields built-in defaults."""
+def _no_project_config(monkeypatch, tmp_path: Path) -> None:
+    """Point cwd at a tmp dir with no project config."""
+    empty = tmp_path / "empty"
+    empty.mkdir(exist_ok=True)
+    monkeypatch.chdir(empty)
+
+
+def test_load_config_defaults_with_project_file(monkeypatch, tmp_path):
+    """Project file provides persist_dir; ollama/ingest fall back to built-in defaults."""
     _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    _write_project_config(tmp_path, f'[chroma]\npersist_dir = "{db}"\n')
+    monkeypatch.chdir(tmp_path)
+
     cfg = config.load_config(environ={})
     assert cfg.ollama_host == "http://localhost:11434"
     assert cfg.ollama_model == "nomic-embed-text"
+    assert cfg.chroma_persist_dir == str(db)
     assert cfg.ingest_dir is None
     assert cfg.ingest_collection == "default"
-    assert cfg.chroma_persist_dir.endswith("chroma_data")
 
 
-def test_load_config_reads_toml(tmp_path):
-    """Values come from the config file."""
-    notes = tmp_path / "notes"
-    notes.mkdir()
+def test_missing_persist_dir_raises(monkeypatch, tmp_path):
+    """No project file and no env raises ValueError."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+
+    with pytest.raises(ValueError, match="chroma.persist_dir"):
+        config.load_config(environ={})
+
+
+def test_global_ollama_overrides_defaults(monkeypatch, tmp_path):
+    """Global config.toml supplies [ollama]; chroma comes from project file."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
     db = tmp_path / "db"
-    toml = (
-        "[ollama]\n"
-        'host = "http://ollama:9999"\n'
-        'model = "mxbai-embed-large"\n'
-        "[chroma]\n"
-        f'persist_dir = "{db}"\n'
-        "[ingest]\n"
-        f'directory = "{notes}"\n'
-        'collection = "docs"\n'
+    global_path = _write_global_config(
+        tmp_path,
+        '[ollama]\nhost = "http://global-host"\nmodel = "global-model"\n',
     )
-    cfg = config.load_config(config_path=_write_config(tmp_path, toml), environ={})
-    assert cfg.ollama_host == "http://ollama:9999"
-    assert cfg.ollama_model == "mxbai-embed-large"
+    _write_project_config(tmp_path, f'[chroma]\npersist_dir = "{db}"\n')
+    monkeypatch.chdir(tmp_path)
+
+    cfg = config.load_config(config_path=str(global_path), environ={})
+    assert cfg.ollama_host == "http://global-host"
+    assert cfg.ollama_model == "global-model"
     assert cfg.chroma_persist_dir == str(db)
-    assert cfg.ingest_dir == str(notes)
-    assert cfg.ingest_collection == "docs"
 
 
-def test_env_overrides_file(tmp_path):
-    """RAG_MCP_* env vars take precedence over the config file."""
-    path = _write_config(
-        tmp_path, '[ollama]\nhost = "http://file-host"\nmodel = "file-model"\n'
+def test_global_chroma_ignored(monkeypatch, tmp_path):
+    """[chroma] in global config.toml is ignored; project file is required."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    global_path = _write_global_config(
+        tmp_path, f'[chroma]\npersist_dir = "{db}"\n'
     )
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ValueError, match="chroma.persist_dir"):
+        config.load_config(config_path=str(global_path), environ={})
+
+
+def test_project_ollama_overrides_global(monkeypatch, tmp_path):
+    """Project [ollama] overrides global [ollama]."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    global_path = _write_global_config(
+        tmp_path, '[ollama]\nhost = "http://global"\nmodel = "global"\n'
+    )
+    _write_project_config(
+        tmp_path,
+        f'[ollama]\nmodel = "project-model"\n[chroma]\npersist_dir = "{db}"\n',
+    )
+    monkeypatch.chdir(tmp_path)
+
+    cfg = config.load_config(config_path=str(global_path), environ={})
+    assert cfg.ollama_host == "http://global"
+    assert cfg.ollama_model == "project-model"
+
+
+def test_env_overrides_project_and_global(monkeypatch, tmp_path):
+    """RAG_MCP_* env vars beat both config files."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    global_path = _write_global_config(
+        tmp_path, '[ollama]\nhost = "http://global"\nmodel = "global"\n'
+    )
+    _write_project_config(
+        tmp_path,
+        f'[ollama]\nmodel = "project-model"\n[chroma]\npersist_dir = "{db}"\n',
+    )
+    monkeypatch.chdir(tmp_path)
+
     cfg = config.load_config(
-        config_path=path,
+        config_path=str(global_path),
         environ={
             "RAG_MCP_OLLAMA_HOST": "http://env-host",
             "RAG_MCP_OLLAMA_MODEL": "env-model",
@@ -70,17 +135,125 @@ def test_env_overrides_file(tmp_path):
     assert cfg.ollama_model == "env-model"
 
 
-def test_tilde_expansion(tmp_path, monkeypatch):
-    """~ in paths is expanded using HOME."""
-    monkeypatch.setenv("HOME", str(tmp_path))
-    (tmp_path / "notes").mkdir()
-    path = _write_config(
-        tmp_path,
-        '[chroma]\npersist_dir = "~/db"\n[ingest]\ndirectory = "~/notes"\n',
+def test_env_provides_persist_dir_without_project_file(monkeypatch, tmp_path):
+    """An env var can satisfy persist_dir without a project file."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+
+    cfg = config.load_config(
+        environ={"RAG_MCP_CHROMA_PERSIST_DIR": str(db)},
     )
-    cfg = config.load_config(config_path=path)
-    assert cfg.chroma_persist_dir == str(tmp_path / "db")
-    assert cfg.ingest_dir == str(tmp_path / "notes")
+    assert cfg.chroma_persist_dir == str(db)
+
+
+def test_project_config_discovered_via_cwd_walk_up(monkeypatch, tmp_path):
+    """A .rag-mcp.toml in an ancestor directory is discovered."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    _write_project_config(tmp_path, f'[chroma]\npersist_dir = "{db}"\n')
+
+    sub = tmp_path / "sub" / "deeper"
+    sub.mkdir(parents=True)
+    monkeypatch.chdir(sub)
+
+    cfg = config.load_config(environ={})
+    assert cfg.chroma_persist_dir == str(db)
+
+
+def test_project_config_not_found_no_walk_up_match(monkeypatch, tmp_path):
+    """With no project file anywhere in the walk-up, config requires env vars."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+
+    with pytest.raises(ValueError, match="chroma.persist_dir"):
+        config.load_config(environ={})
+
+
+def test_relative_persist_dir_resolves_to_project_root(monkeypatch, tmp_path):
+    """A relative persist_dir in the project file resolves under the project root."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    _write_project_config(tmp_path, '[chroma]\npersist_dir = "./store"\n')
+    monkeypatch.chdir(tmp_path)
+
+    cfg = config.load_config(environ={})
+    assert cfg.chroma_persist_dir == str((tmp_path / "store").resolve())
+
+
+def test_relative_ingest_dir_resolves_to_project_root(monkeypatch, tmp_path):
+    """A relative ingest directory resolves under the project root."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    _write_project_config(
+        tmp_path,
+        '[chroma]\npersist_dir = "./store"\n[ingest]\ndirectory = "./docs"\n',
+    )
+    monkeypatch.chdir(tmp_path)
+
+    cfg = config.load_config(environ={})
+    assert cfg.ingest_dir == str(docs.resolve())
+
+
+def test_relative_path_escaping_project_root_raises(monkeypatch, tmp_path):
+    """A relative path outside the project root raises ValueError."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    _write_project_config(tmp_path, '[chroma]\npersist_dir = "../escape"\n')
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ValueError, match="escapes project root"):
+        config.load_config(environ={})
+
+
+def test_relative_env_persist_dir_without_project_root_raises(monkeypatch, tmp_path):
+    """A relative RAG_MCP_CHROMA_PERSIST_DIR with no project file raises."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+
+    with pytest.raises(ValueError, match="requires a project root"):
+        config.load_config(environ={"RAG_MCP_CHROMA_PERSIST_DIR": "./db"})
+
+
+def test_absolute_path_works_without_project_file(monkeypatch, tmp_path):
+    """An absolute path env var works even without a project file."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+
+    cfg = config.load_config(
+        environ={"RAG_MCP_CHROMA_PERSIST_DIR": str(db)},
+    )
+    assert cfg.chroma_persist_dir == str(db.resolve())
+
+
+def test_tilde_expansion_in_project_file(monkeypatch, tmp_path):
+    """~ in the project file's persist_dir expands using HOME."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    home_db = tmp_path / "db"
+    _write_project_config(tmp_path, '[chroma]\npersist_dir = "~/db"\n')
+    monkeypatch.chdir(tmp_path)
+
+    cfg = config.load_config(environ={})
+    assert cfg.chroma_persist_dir == str(home_db)
+
+
+def test_tilde_expansion_in_env(monkeypatch, tmp_path):
+    """~ in RAG_MCP_CHROMA_PERSIST_DIR expands using HOME."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    home_db = tmp_path / "db"
+
+    cfg = config.load_config(
+        environ={"RAG_MCP_CHROMA_PERSIST_DIR": "~/db"},
+    )
+    assert cfg.chroma_persist_dir == str(home_db)
 
 
 def test_rag_mcp_config_missing_file_raises(tmp_path):
@@ -92,38 +265,78 @@ def test_rag_mcp_config_missing_file_raises(tmp_path):
         )
 
 
-def test_invalid_toml_raises(tmp_path):
-    """Malformed TOML raises ValueError."""
+def test_invalid_global_toml_raises(tmp_path):
+    """Malformed global TOML raises ValueError."""
     path = tmp_path / "bad.toml"
     path.write_text("this is not [valid toml")
     with pytest.raises(ValueError):
         config.load_config(config_path=str(path), environ={})
 
 
-def test_invalid_host_raises(tmp_path):
+def test_invalid_project_toml_raises(monkeypatch, tmp_path):
+    """Malformed project TOML raises ValueError."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    _write_project_config(tmp_path, "this is not [valid toml")
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ValueError):
+        config.load_config(environ={})
+
+
+def test_invalid_host_raises(monkeypatch, tmp_path):
     """A non-URL ollama host raises ValueError."""
-    path = _write_config(tmp_path, '[ollama]\nhost = "not a url"\n')
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    _write_project_config(
+        tmp_path,
+        f'[ollama]\nhost = "not a url"\n[chroma]\npersist_dir = "{db}"\n',
+    )
+    monkeypatch.chdir(tmp_path)
+
     with pytest.raises(ValueError):
-        config.load_config(config_path=path, environ={})
+        config.load_config(environ={})
 
 
-def test_empty_model_raises(tmp_path):
+def test_empty_model_raises(monkeypatch, tmp_path):
     """An empty ollama model raises ValueError."""
-    path = _write_config(tmp_path, '[ollama]\nmodel = ""\n')
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    _write_project_config(
+        tmp_path,
+        f'[ollama]\nmodel = ""\n[chroma]\npersist_dir = "{db}"\n',
+    )
+    monkeypatch.chdir(tmp_path)
+
     with pytest.raises(ValueError):
-        config.load_config(config_path=path, environ={})
+        config.load_config(environ={})
 
 
-def test_missing_ingest_dir_raises(tmp_path):
+def test_missing_ingest_dir_raises(monkeypatch, tmp_path):
     """An ingest directory that does not exist raises ValueError."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
     missing = tmp_path / "nope"
-    path = _write_config(tmp_path, f'[ingest]\ndirectory = "{missing}"\n')
+    _write_project_config(
+        tmp_path,
+        f'[chroma]\npersist_dir = "{db}"\n[ingest]\ndirectory = "{missing}"\n',
+    )
+    monkeypatch.chdir(tmp_path)
+
     with pytest.raises(ValueError):
-        config.load_config(config_path=path, environ={})
+        config.load_config(environ={})
 
 
 def test_get_config_caches(monkeypatch, tmp_path):
     """get_config() loads once and returns the cached instance."""
-    monkeypatch.setattr(config, "_config", None)
     _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    _write_project_config(tmp_path, f'[chroma]\npersist_dir = "{db}"\n')
+    monkeypatch.chdir(tmp_path)
+
+    monkeypatch.setattr(config, "_config", None)
     assert config.get_config() is config.get_config()
