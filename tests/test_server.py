@@ -1,4 +1,5 @@
 """Tests for rag_mcp.server MCP tools."""
+import asyncio
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -157,6 +158,92 @@ def test_delete_collection_missing(mock_get_store):
     with pytest.raises(ValueError):
         delete_collection(collection="missing")
     mock_store.delete_collection.assert_not_called()
+
+
+# Server metadata and the rag://readme resource (planned feature).
+def test_server_metadata_exposes_title_description_version_instructions():
+    """The module-level MCPServer is constructed with full server metadata."""
+    from rag_mcp.server import mcp
+
+    assert mcp.title
+    assert mcp.description
+    assert mcp.version == "0.1.0"
+    assert mcp.instructions
+
+
+def test_server_instructions_mention_query_documents_and_corpus():
+    """Server instructions direct clients to query_documents over the indexed corpus."""
+    from rag_mcp.server import mcp
+
+    assert mcp.instructions
+    assert "query_documents" in mcp.instructions
+    assert "corpus" in mcp.instructions
+
+
+def test_resources_list_includes_readme_resource():
+    """resources/list exposes the rag://readme resource."""
+    from rag_mcp.server import mcp
+
+    resources = asyncio.run(mcp.list_resources())
+    uris = [resource.uri for resource in resources]
+    assert "rag://readme" in uris
+
+
+def test_read_readme_resource_returns_packaged_readme():
+    """Reading rag://readme returns the packaged README content."""
+    readme = "# rag-mcp\n\nRAG MCP server backed by Ollama embeddings and ChromaDB."
+    with patch("rag_mcp.server._read_readme", return_value=readme, create=True):
+        from rag_mcp.server import mcp
+
+        contents = asyncio.run(mcp.read_resource("rag://readme"))
+    assert contents[0].content == readme
+
+
+def test_readme_resource_metadata():
+    """The rag://readme resource carries name, description, and markdown mime type."""
+    from rag_mcp.server import mcp
+
+    resources = asyncio.run(mcp.list_resources())
+    uris = [resource.uri for resource in resources]
+    assert "rag://readme" in uris
+    readme = next(resource for resource in resources if resource.uri == "rag://readme")
+    assert "README" in readme.name.upper()
+    assert "README" in readme.description.upper()
+    assert readme.mime_type == "text/markdown"
+
+
+def test_query_documents_description_mentions_questions_about_corpus():
+    """query_documents description covers answering questions about the indexed corpus."""
+    from rag_mcp.server import mcp
+
+    tools = asyncio.run(mcp.list_tools())
+    query_tool = next(tool for tool in tools if tool.name == "query_documents")
+    assert "question" in query_tool.description.lower()
+    assert "corpus" in query_tool.description.lower()
+
+
+def test_server_registers_all_five_tools():
+    """All five tools stay registered alongside the metadata and resource additions."""
+    from rag_mcp.server import mcp
+
+    tools = asyncio.run(mcp.list_tools())
+    assert {tool.name for tool in tools} == {
+        "add_documents",
+        "query_documents",
+        "list_collections",
+        "delete_collection",
+        "sync_directory",
+    }
+
+
+def test_all_tool_descriptions_present():
+    """Every registered tool keeps a clear, non-empty description."""
+    from rag_mcp.server import mcp
+
+    tools = asyncio.run(mcp.list_tools())
+    for tool in tools:
+        assert tool.name
+        assert tool.description
 
 
 @patch("rag_mcp.server.get_config")
