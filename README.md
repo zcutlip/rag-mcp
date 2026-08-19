@@ -297,7 +297,7 @@ Delete a collection and all its documents.
 Incrementally sync a directory of markdown files into a collection. Safe to call repeatedly: new and changed files are chunked and (re-)embedded, unchanged files are skipped, and files removed from disk have their chunks removed from the collection. Setting `RAG_MCP_INGEST_DIR` (or `[ingest] directory` in `.rag-mcp.toml`) also runs this automatically on server startup.
 
 **Parameters:**
-- `directory` (str) — path to the directory of `.md`/`.markdown` files to sync
+- `directory` (str) — path to the directory of `.md`/`.markdown` files to sync (see FAQ)
 - `collection` (str, default `"default"`) — target collection name
 
 ## Development
@@ -305,6 +305,14 @@ Incrementally sync a directory of markdown files into a collection. Safe to call
 ```bash
 pytest            # run tests
 ```
+
+## FAQ
+
+### What file types can I index?
+
+Directory sync (`sync_directory` and `RAG_MCP_INGEST_DIR` auto-ingest) indexes Markdown only — `.md` and `.markdown`, recursively.
+
+Text-like files (.txt/.rst/.mdx) would be trivial — binary types like PDF/DOCX need a text-extraction dependency and a small ingest redesign. Native extractors are doable and under consideration. They would likely be behind an opt-in dependency so the base install stays lean.
 
 ## License
 
