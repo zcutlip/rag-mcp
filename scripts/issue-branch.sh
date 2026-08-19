@@ -32,10 +32,11 @@ Commands:
     Runs pre-flight checks (clean tree, tests, changelog) before merging.
     Promotes CHANGELOG.md [Unreleased] section to the release version.
 
-  release [--major|--minor|--patch] [--skip-tests] [--skip-changelog]
+  release [--major|--minor|--patch] [--no-bump] [--skip-tests] [--skip-changelog]
     Create a release directly on main (no branch, no GitHub issue required).
     Bumps version, promotes changelog, commits, and tags.
     Guards: must be on main, clean tree, tests pass, changelog has content.
+    With --no-bump, tags at current version without bumping.
 
   status
     Show current issue branch status and version info
@@ -53,6 +54,7 @@ Examples:
   $SCRIPT_NAME finish
   $SCRIPT_NAME release --minor
   $SCRIPT_NAME release --patch --skip-tests
+  $SCRIPT_NAME release --no-bump
 
 EOF
     exit 1
@@ -579,6 +581,7 @@ cmd_finish() {
 # Release command - works directly on main, no branch required
 cmd_release() {
     local bump_type="patch"
+    local no_bump="false"
     local skip_tests="false"
     local skip_changelog="false"
 
@@ -595,6 +598,10 @@ cmd_release() {
                 ;;
             --patch)
                 bump_type="patch"
+                shift
+                ;;
+            --no-bump)
+                no_bump="true"
                 shift
                 ;;
             --skip-tests)
@@ -669,10 +676,15 @@ cmd_release() {
     echo "[INFO] Current version: $current_version"
     local base_version="${current_version%%.dev*}"
 
-    # Bump version
+    # Determine release version
     local new_version
-    new_version=$(bump_version "$base_version" "$bump_type")
-    echo "[INFO] Bumping $bump_type version: $base_version -> $new_version"
+    if [[ "$no_bump" == "true" ]]; then
+        new_version="$base_version"
+        echo "[INFO] Releasing at current version: $new_version (--no-bump)"
+    else
+        new_version=$(bump_version "$base_version" "$bump_type")
+        echo "[INFO] Bumping $bump_type version: $base_version -> $new_version"
+    fi
 
     # Promote changelog [Unreleased] to version section
     if [[ "$skip_changelog" != "true" ]]; then
