@@ -72,7 +72,12 @@ validate_type() {
 
 # Get current version from __init__.py
 get_current_version() {
-    python3 -c "from rag_mcp import __version__; print(__version__)"
+    local venv_python="$HOME/.virtualenvs/rag-mcp/bin/python"
+    if [[ -x "$venv_python" ]]; then
+        "$venv_python" -c "from rag_mcp import __version__; print(__version__)"
+    else
+        python3 -c "from rag_mcp import __version__; print(__version__)"
+    fi
 }
 
 # Parse version into components

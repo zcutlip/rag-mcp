@@ -215,7 +215,7 @@ For cutting a release without a branch or GitHub issue.
 - **Preconditions** (enforced by the script):
   - Must be on `main`
   - Working tree must be clean (no uncommitted changes)
-  - Tests must pass (`pytest` is invoked directly by `finish`/`release`)
+  - Tests must pass (`scripts/run-tests.sh` is invoked by `finish`/`release`)
   - Changelog must have content to promote (unreleased section is non-empty)
 - **What it does:**
   - Promotes the changelog (moves unreleased notes into a new versioned section)
@@ -278,7 +278,7 @@ Manages issue branch lifecycle: creation, version bumping, and merge.
 ./scripts/issue-branch.sh release [--major|--minor|--patch]
 ```
 
-`finish` invokes `pytest` directly to verify tests pass before merging.
+`finish` invokes `scripts/run-tests.sh` to verify tests pass before merging.
 
 ### `scripts/git-rename-tag.sh`
 
@@ -296,3 +296,23 @@ Renames a git tag while preserving annotations.
 ```
 
 Preserves annotated tag messages automatically. Use `--edit` to modify the annotation in your editor before creating the new tag.
+
+### `scripts/run-tests.sh`
+
+Runs pytest with automatic virtualenv initialization.
+
+```bash
+# Run all tests
+./scripts/run-tests.sh
+
+# Run with verbose output
+./scripts/run-tests.sh -v
+
+# Run specific test file
+./scripts/run-tests.sh tests/test_server.py
+
+# Run tests matching pattern
+./scripts/run-tests.sh -k test_query
+```
+
+Sources `~/.virtualenvs/rag-mcp` and invokes `pytest` with argument passthrough. Used internally by `finish` and `release` as the test gate. Hard-fails if the virtualenv doesn't exist (use `--skip-tests` to bypass).
