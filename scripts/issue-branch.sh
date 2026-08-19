@@ -474,13 +474,20 @@ cmd_finish() {
 
     # Guard: tests passing
     if [[ "$skip_tests" != "true" ]]; then
-        echo "[INFO] Running test suite..."
-        if ! pytest; then
-            echo "ERROR: Tests failed. Fix before releasing." >&2
-            echo "  Use --skip-tests to bypass (not recommended)." >&2
+        local test_script="$PROJECT_ROOT/scripts/run-tests.sh"
+        if [[ -x "$test_script" ]]; then
+            echo "[INFO] Running test suite..."
+            if ! "$test_script"; then
+                echo "ERROR: Tests failed. Fix before releasing." >&2
+                echo "  Use --skip-tests to bypass (not recommended)." >&2
+                exit 1
+            fi
+            echo "[OK] Tests passing"
+        else
+            echo "ERROR: Test script not found: $test_script" >&2
+            echo "  Use --skip-tests to bypass." >&2
             exit 1
         fi
-        echo "[OK] Tests passing"
     fi
 
     # Guard + auto-promote: changelog
@@ -638,13 +645,20 @@ cmd_release() {
 
     # Guard: tests passing
     if [[ "$skip_tests" != "true" ]]; then
-        echo "[INFO] Running test suite..."
-        if ! pytest; then
-            echo "ERROR: Tests failed. Fix before releasing." >&2
-            echo "  Use --skip-tests to bypass (not recommended)." >&2
+        local test_script="$PROJECT_ROOT/scripts/run-tests.sh"
+        if [[ -x "$test_script" ]]; then
+            echo "[INFO] Running test suite..."
+            if ! "$test_script"; then
+                echo "ERROR: Tests failed. Fix before releasing." >&2
+                echo "  Use --skip-tests to bypass (not recommended)." >&2
+                exit 1
+            fi
+            echo "[OK] Tests passing"
+        else
+            echo "ERROR: Test script not found: $test_script" >&2
+            echo "  Use --skip-tests to bypass." >&2
             exit 1
         fi
-        echo "[OK] Tests passing"
     fi
 
     # Guard: changelog has non-empty [Unreleased] section
