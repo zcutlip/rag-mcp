@@ -54,6 +54,7 @@ tests/                # Test suite (flat structure, no classes)
   test_ingest_frontmatter.py # 12 tests for frontmatter metadata storage and migration
   test_query_structured.py # 8 tests for structured query responses
   test_version.py     # 1 test for package version
+scripts/              # Workflow automation (issue-branch.sh, git-rename-tag.sh)
 docs/                 # Current specs
 docs/archive/         # Completed/superseded specs, named YYYY-MM-DD-<topic>-spec.md
 .rag-mcp.toml         # Optional project-local config (chromadb + ingest, version-controllable)
@@ -213,3 +214,15 @@ pytest tests/test_server.py  # run specific module
 - **Stop gates:** User-held review checkpoints. After each substantive stage, stop for user review/approval. Final review and commit are performed by the user.
 - **No commits:** Unless you are the @commit agent, never commit, push, or stage-then-commit. Automated checks and delegate reports do not constitute user approval.
 - **Delegation tiers:** @lint and @commit are specialists and receive outcomes only — @commit is never without being explicitly directed by the user. @coder and @explore are generalists and may receive precise specifications.
+
+## Issue Branch Workflow
+
+**IMPORTANT: Use the helper script `scripts/issue-branch.sh` for all issue-related operations.**
+Do not manually run git commands for creating issue branches, bumping versions, or merging.
+
+- **Creating issue branches:** `./scripts/issue-branch.sh create <type> <issue-number> <short-desc>`
+- **Finishing and merging:** `./scripts/issue-branch.sh finish`
+- **Cutting a release without an issue:** `./scripts/issue-branch.sh release [--major|--minor|--patch]`
+- **Checking status:** `./scripts/issue-branch.sh status`
+
+For full documentation, see `docs/issue-branch-workflow.md`.
