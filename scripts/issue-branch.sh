@@ -708,8 +708,12 @@ cmd_release() {
     # Bump version in __init__.py
     update_version_file "$new_version"
     git add src/rag_mcp/__init__.py
-    git commit -m "Release version $new_version"
-    echo "[OK] Version bumped to $new_version"
+    if ! git diff --cached --quiet; then
+        git commit -m "Release version $new_version"
+        echo "[OK] Version bumped to $new_version"
+    else
+        echo "[INFO] Version already at $new_version, skipping commit"
+    fi
 
     # Create annotated tag
     local tag_name="v${new_version}"
