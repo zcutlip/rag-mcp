@@ -166,7 +166,7 @@ A helper script `scripts/issue-branch.sh` automates this workflow.
 ./scripts/issue-branch.sh finish
 
 # Cut a release directly from main (no branch or issue)
-./scripts/issue-branch.sh release [--major|--minor|--patch]
+./scripts/issue-branch.sh release [--major|--minor|--patch] [--no-bump]
 
 # Check current issue/branch status
 ./scripts/issue-branch.sh status
@@ -197,6 +197,9 @@ A helper script `scripts/issue-branch.sh` automates this workflow.
 
 # Cut a minor release from main
 ./scripts/issue-branch.sh release --minor
+
+# Release at current version without bumping (e.g., first release)
+./scripts/issue-branch.sh release --no-bump
 ```
 
 ### `release` Subcommand
@@ -204,7 +207,7 @@ A helper script `scripts/issue-branch.sh` automates this workflow.
 For cutting a release without a branch or GitHub issue.
 
 ```bash
-./scripts/issue-branch.sh release [--major|--minor|--patch]
+./scripts/issue-branch.sh release [--major|--minor|--patch] [--no-bump]
 ```
 
 - Use when the changes are already on `main` and you just need to publish a release (e.g., docs-only updates, small fixes committed directly, or manual release cadence).
@@ -220,6 +223,7 @@ For cutting a release without a branch or GitHub issue.
   - Commits the changelog and version bump
   - Creates an annotated tag `vX.Y.Z`
 - **Bump level:** Default is `patch` (e.g., `0.1.0` -> `0.1.1`). Pass `--minor` or `--major` to override; `--patch` is explicit patch.
+- **`--no-bump`:** Releases at the current version without bumping. Use for first releases or when the version is already correct.
 
 ## Edge Cases
 
