@@ -76,6 +76,8 @@ persist_dir = "./.chroma"
 [ingest]
 directory = "./docs"
 collection = "default"
+# Optional ordered patterns: files start included; last match wins; '!' negates.
+# patterns = ["!private/**", "private/keep/**"]
 ```
 
 Relative paths resolve against the directory containing `.rag-mcp.toml`
@@ -104,6 +106,7 @@ Precedence: defaults < global `<embeddings>` < project file < env vars.
   against project root and must stay within it
 - `ingest.directory` — `~`-expanded; relative paths resolve against project
   root and must stay within it; if set, must be an existing directory
+- `ingest.patterns` — optional `list[str]`, project-local only; each element non-empty, `!` negates, bare `!`/`""` rejected; `*` crosses `/` via `fnmatch`, case-insensitive; global `[ingest] patterns` → `ValueError`
 - Global file: invalid TOML → `ValueError` naming the path; `RAG_MCP_CONFIG`
   set to a missing file → `ValueError`
 - Project file: invalid TOML → `ValueError` naming the path

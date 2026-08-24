@@ -95,6 +95,8 @@ persist_dir = "./.chroma"
 [ingest]
 directory = "./docs"
 collection = "default"
+# Ordered include/exclude patterns (optional). Files start included; last match wins; '!' negates.
+# patterns = ["!private/**", "private/keep/**"]  # exclude private/** but re-include private/keep/**
 ```
 
 Relative paths in the project file resolve against the directory containing
