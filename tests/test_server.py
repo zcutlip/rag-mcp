@@ -238,7 +238,7 @@ def test_server_registers_all_five_tools():
         "query_documents",
         "list_collections",
         "delete_collection",
-        "sync_directory",
+        "sync",
     }
 
 
@@ -377,3 +377,65 @@ def test_main_readme_metadata_missing_reports_error(
     mock_read.assert_called_once()
     mock_get_config.assert_not_called()
     mock_run.assert_not_called()
+
+
+@patch("rag_mcp.server.get_config")
+@patch("rag_mcp.server.get_store")
+@patch("rag_mcp.server.ingest.sync_directory")
+def test_sync_tool_reingests_configured_corpus(
+    mock_sync, mock_get_store, mock_get_config
+):
+    """sync() re-runs the configured corpus through ingest.sync_directory."""
+    mock_get_config.return_value = _test_config()
+    mock_store = MagicMock()
+    mock_get_store.return_value = mock_store
+    mock_sync.return_value = {"added": 1, "updated": 2, "deleted": 3, "unchanged": 4}
+
+    from rag_mcp.server import sync
+
+    result = sync()
+    assert result == (
+        "Synced '/tmp/docs' into collection 'docs': "
+        "1 added, 2 updated, 3 deleted, 4 unchanged."
+    )
+    mock_sync.assert_called_once()
+    args, kwargs = mock_sync.call_args
+    assert args[0] is mock_store
+    assert args[1] == "/tmp/docs"
+    assert kwargs["collection"] == "docs"
+    assert kwargs["embeddings_host"] == "http://localhost:11434"
+    assert kwargs["embeddings_model"] == "nomic-embed-text"
+
+
+@patch("rag_mcp.server.get_config")
+@patch("rag_mcp.server.get_store")
+@patch("rag_mcp.server.ingest.sync_directory")
+def test_sync_tool_raises_when_ingest_dir_unset(
+    mock_sync, mock_get_store, mock_get_config
+):
+    """sync() without a configured ingest directory raises guidance-bearing ValueError."""
+    mock_get_config.return_value = MagicMock(
+        embeddings_host="http://localhost:11434",
+        embeddings_model="nomic-embed-text",
+        chroma_persist_dir="/tmp/chroma",
+        ingest_dir=None,
+        ingest_collection="docs",
+    )
+
+    from rag_mcp.server import sync
+
+    with pytest.raises(ValueError) as exc_info:
+        sync()
+    assert "[ingest] directory" in str(exc_info.value)
+    assert "RAG_MCP_INGEST_DIR" in str(exc_info.value)
+    mock_sync.assert_not_called()
+
+
+def test_sync_description_mentions_configured_corpus():
+    """The sync tool description covers re-syncing the configured corpus collection."""
+    from rag_mcp.server import mcp
+
+    tools = asyncio.run(mcp.list_tools())
+    sync_tool = next(tool for tool in tools if tool.name == "sync")
+    assert "configured" in sync_tool.description.lower()
+    assert "collection" in sync_tool.description.lower()
