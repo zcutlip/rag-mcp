@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Ordered `ingest.patterns` include/exclude filtering in `.rag-mcp.toml` (project-local `[ingest] patterns`). Files start included; patterns evaluated in order, last match wins; `!` negates. Case-insensitive `fnmatch` where `*` crosses `/` (`**` ≡ `*`). Filtered before read/hash/embed; newly excluded files delete via the existing `seen_sources` diff; zero-match patterns warn on stderr. (closes #4)
 
 ## [2.0.0] - 2026-08-23
 
