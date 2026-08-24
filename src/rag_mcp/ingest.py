@@ -1,7 +1,9 @@
 """Markdown directory ingestion: chunking, hashing, and incremental sync into VectorStore."""
+import fnmatch
 import hashlib
 import json
 import re
+import sys
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -92,6 +94,25 @@ def file_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def should_include(source: str, patterns: list[str] | None) -> bool:
+    """Pure matcher for ordered include/exclude patterns.
+
+    - if not patterns (None or []): return True
+    - otherwise: last matching pattern wins (negated patterns exclude)
+    """
+    if not patterns:
+        return True
+    included = True
+    for pat in patterns:
+        is_neg = pat.startswith("!")
+        raw = pat[1:] if is_neg else pat
+        if raw == "":
+            continue
+        if fnmatch.fnmatchcase(source.lower(), raw.lower()):
+            included = False if is_neg else True
+    return included
+
+
 def sync_directory(
     store: VectorStore,
     directory: str,
@@ -99,6 +120,7 @@ def sync_directory(
     *,
     embeddings_host: str,
     embeddings_model: str,
+    patterns: list[str] | None = None,
 ) -> dict[str, int]:
     """Incrementally sync markdown files under `directory` into `collection`.
 
@@ -124,8 +146,26 @@ def sync_directory(
     ids_to_delete: list[str] = []
 
     root = Path(directory)
-    for path in iter_markdown_files(directory):
+    all_paths = iter_markdown_files(directory)
+    for path in all_paths:
         source = str(path.relative_to(root).as_posix())
+        # Whitelist handling: if any positive pattern exists, require a positive match
+        # to consider the file included (otherwise non-matching files would be
+        # incorrectly included via should_include's default True).
+        if patterns:
+            has_positive = any(not p.startswith("!") and p != "" and p != "!" for p in patterns)
+            if has_positive:
+                positive_match = any(
+                    not p.startswith("!")
+                    and p != ""
+                    and p != "!"
+                    and fnmatch.fnmatchcase(source.lower(), p.lower())
+                    for p in patterns
+                )
+                if not positive_match:
+                    continue
+        if not should_include(source, patterns):
+            continue
         seen_sources.add(source)
         raw_text = path.read_text(encoding="utf-8")
 
@@ -181,6 +221,17 @@ def sync_directory(
             )
 
         counts["updated" if prior_chunks else "added"] += 1
+
+    if patterns:
+        all_sources = [str(p.relative_to(root).as_posix()) for p in all_paths]
+        for pat in patterns:
+            is_neg = pat.startswith("!")
+            raw = pat[1:] if is_neg else pat
+            if raw == "":
+                continue
+            matched = any(fnmatch.fnmatchcase(s.lower(), raw.lower()) for s in all_sources)
+            if not matched:
+                print(f"warning: pattern '{pat}' matched no files", file=sys.stderr)
 
     for source, chunks in existing_by_source.items():
         if source not in seen_sources:

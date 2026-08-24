@@ -210,6 +210,7 @@ def sync() -> str:
         collection=config.ingest_collection,
         embeddings_host=config.embeddings_host,
         embeddings_model=config.embeddings_model,
+        patterns=config.ingest_patterns,
     )
     return (
         f"Synced '{config.ingest_dir}' into collection '{config.ingest_collection}': "
@@ -260,6 +261,7 @@ def main(argv: list[str] | None = None) -> None:
             collection=config.ingest_collection,
             embeddings_host=config.embeddings_host,
             embeddings_model=config.embeddings_model,
+            patterns=config.ingest_patterns,
         )
     mcp.run()
 
