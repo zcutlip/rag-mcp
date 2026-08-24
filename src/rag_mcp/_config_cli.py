@@ -27,6 +27,8 @@ persist_dir = "./.chroma"
 # at server startup. Must exist if set. Leave commented to skip auto-ingest.
 # directory = "./docs"
 collection = "default"
+# Optional ordered patterns: files start included; last match wins; '!' negates.
+# patterns = ["!private/**", "private/keep/**"]
 """
 
 
