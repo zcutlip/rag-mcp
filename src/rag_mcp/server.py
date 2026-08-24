@@ -192,21 +192,27 @@ def delete_collection(collection: str = "default") -> str:
 
 
 @mcp.tool()
-def sync_directory(directory: str, collection: str = "default") -> str:
-    """Sync a directory of markdown files into a collection.
+def sync() -> str:
+    """Sync the configured corpus into its collection.
 
-    Adds new/changed files, removes deleted ones.
+    Re-syncs the ingest directory configured in .rag-mcp.toml ([ingest] directory)
+    into [ingest] collection. Adds new/changed files, removes deleted ones.
     """
     config = get_config()
+    if not config.ingest_dir:
+        raise ValueError(
+            "No ingest directory configured: set [ingest] directory in .rag-mcp.toml "
+            "or via RAG_MCP_INGEST_DIR"
+        )
     result = ingest.sync_directory(
         get_store(),
-        directory,
-        collection=collection,
+        config.ingest_dir,
+        collection=config.ingest_collection,
         embeddings_host=config.embeddings_host,
         embeddings_model=config.embeddings_model,
     )
     return (
-        f"Synced '{directory}' into collection '{collection}': "
+        f"Synced '{config.ingest_dir}' into collection '{config.ingest_collection}': "
         f"{result['added']} added, {result['updated']} updated, "
         f"{result['deleted']} deleted, {result['unchanged']} unchanged."
     )
