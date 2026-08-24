@@ -98,11 +98,14 @@ def should_include(source: str, patterns: list[str] | None) -> bool:
     """Pure matcher for ordered include/exclude patterns.
 
     - if not patterns (None or []): return True
+    - whitelist-aware: if any positive pattern exists, default is excluded until
+      a positive matches; otherwise default is included
     - otherwise: last matching pattern wins (negated patterns exclude)
     """
     if not patterns:
         return True
-    included = True
+    has_positive = any(not p.startswith("!") and p not in ("", "!") for p in patterns)
+    included = not has_positive
     for pat in patterns:
         is_neg = pat.startswith("!")
         raw = pat[1:] if is_neg else pat
@@ -149,21 +152,6 @@ def sync_directory(
     all_paths = iter_markdown_files(directory)
     for path in all_paths:
         source = str(path.relative_to(root).as_posix())
-        # Whitelist handling: if any positive pattern exists, require a positive match
-        # to consider the file included (otherwise non-matching files would be
-        # incorrectly included via should_include's default True).
-        if patterns:
-            has_positive = any(not p.startswith("!") and p != "" and p != "!" for p in patterns)
-            if has_positive:
-                positive_match = any(
-                    not p.startswith("!")
-                    and p != ""
-                    and p != "!"
-                    and fnmatch.fnmatchcase(source.lower(), p.lower())
-                    for p in patterns
-                )
-                if not positive_match:
-                    continue
         if not should_include(source, patterns):
             continue
         seen_sources.add(source)
