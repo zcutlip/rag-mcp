@@ -24,9 +24,11 @@ def test_should_include_empty_list_includes_everything():
 
 
 def test_should_include_default_include_when_no_match():
-    """No pattern matches → default included."""
-    assert should_include("other/file.md", ["docs/**"]) is True
-    assert should_include("a.md", ["nomatch/**"]) is True
+    """No pattern matches → whitelist-aware default (excluded if whitelist exists)."""
+    # Whitelist present → non-matching file excluded
+    assert should_include("other/file.md", ["docs/**"]) is False
+    assert should_include("a.md", ["nomatch/**"]) is False
+    # Only negation present → non-matching file stays included (no whitelist)
     assert should_include("public/a.md", ["!private/**"]) is True
 
 
