@@ -196,6 +196,32 @@ Project-scoped `.mcp.json` in the repo root:
 }
 ```
 
+### oh-my-pi (OMP)
+
+Add a project-scoped `.omp/mcp.json` in the repo root:
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/can1357/oh-my-pi/main/packages/coding-agent/src/config/mcp-schema.json",
+  "mcpServers": {
+    "rag": {
+      "type": "stdio",
+      "command": "rag-mcp",
+      "cwd": "."
+    }
+  }
+}
+```
+
+Launch OMP from the project root so `cwd: "."` resolves there and the
+cwd-walk-up finds `.rag-mcp.toml`. Inside OMP, use `/mcp reload` after
+editing, `/mcp list` to confirm the `rag` server came from `.omp/mcp.json`,
+and `/mcp test rag` to verify it connects.
+
+As a fallback, OMP also auto-discovers the OpenCode `opencode.json` and
+Claude Code `.mcp.json` examples above, so a project already configured for
+one of those clients needs no OMP-specific config.
+
 ### Other agents
 
 If for some reason your client or agent can't use our config file
