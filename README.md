@@ -165,7 +165,9 @@ Register `rag-mcp` as a server in your MCP client. The recommended setup
 is to commit a `.rag-mcp.toml` in each project and have the client launch
 the server from the project root so cwd-walk-up finds it.
 
-**Claude Code** — project-scoped `.mcp.json` in the repo root:
+### Claude Code
+
+Project-scoped `.mcp.json` in the repo root:
 
 ```json
 {
@@ -177,7 +179,9 @@ the server from the project root so cwd-walk-up finds it.
 }
 ```
 
-**OpenCode** — `opencode.json` (or `.jsonc`):
+### OpenCode
+
+`opencode.json` (or `.jsonc`):
 
 ```jsonc
 {
@@ -192,8 +196,12 @@ the server from the project root so cwd-walk-up finds it.
 }
 ```
 
-If your client doesn't launch from the project root, or you can't use
-`.rag-mcp.toml`, set `RAG_MCP_*` env vars explicitly:
+### Other agents
+
+If for some reason your client or agent can't use our config file
+(doesn't launch from the project root, can't write to it, etc.), set
+`RAG_MCP_*` env vars explicitly. The example below uses the Claude Code
+config format — adapt the `env` mapping to your client's own syntax:
 
 ```json
 {
