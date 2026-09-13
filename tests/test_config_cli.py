@@ -163,3 +163,13 @@ def test_unknown_verb_errors(capsys):
 
     assert code == 2
     assert "usage" in err.lower()
+
+
+def test_version_prints_version_and_exits_zero(capsys):
+    """main(["--version"]) prints bare package version to stdout, exits 0."""
+    from rag_mcp import __version__
+
+    code, out, _ = _run_main(capsys, ["--version"])
+
+    assert code == 0
+    assert out.rstrip() == __version__
