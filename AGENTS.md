@@ -41,6 +41,7 @@ src/rag_mcp/          # Source modules (src-layout)
   embeddings.py       # Ollama embedding client
   store.py            # ChromaDB vector store wrapper
   ingest.py           # Markdown directory sync
+  _cli.py             # Shared CLI helpers (bare --version flag for all entry points)
   _config_cli.py      # CLI for rag-mcp-config init utility
   __init__.py         # Package marker (exports __version__)
 tests/                # Test suite (flat structure, no classes)
@@ -143,6 +144,7 @@ Global TOML keys: `[embeddings] host`/`model`. Project TOML keys: `[embeddings]`
 - `src/rag_mcp/embeddings.py` — `get_embeddings(texts, host, model)` with Ollama SDK compatibility shim
 - `src/rag_mcp/store.py` — `VectorStore` class wrapping `chromadb.PersistentClient`
 - `src/rag_mcp/ingest.py` — `sync_directory()` with `patterns` filtering via `should_include`, deterministic chunk IDs and hash-based incremental re-sync
+- `src/rag_mcp/_cli.py` — `add_version_argument()` shared argparse helper; bare `--version` on every CLI, exits before config load
 
 ## Runtime/Tooling Preferences
 
