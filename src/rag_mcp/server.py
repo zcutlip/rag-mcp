@@ -8,6 +8,7 @@ from typing import Any
 from mcp.server.mcpserver import MCPServer
 
 from rag_mcp import ingest
+from rag_mcp._cli import add_version_argument
 from rag_mcp.config import get_config
 from rag_mcp.embeddings import get_embeddings
 from rag_mcp.store import VectorStore
@@ -226,6 +227,7 @@ def main(argv: list[str] | None = None) -> None:
         prog="rag-mcp",
         description="Run the rag-mcp MCP server.",
     )
+    add_version_argument(parser)
     parser.add_argument(
         "command",
         nargs="?",
