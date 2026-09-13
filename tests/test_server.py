@@ -495,3 +495,23 @@ def test_sync_forwards_no_patterns_when_unset(mock_sync, mock_get_store, mock_ge
     assert args[1] == "/tmp/docs"
     assert kwargs["collection"] == "docs"
     assert kwargs["patterns"] is None
+
+
+@patch("rag_mcp.server.get_config")
+@patch("rag_mcp.server.mcp.run")
+@patch("rag_mcp.server.VectorStore")
+def test_main_version_prints_version_and_exits_zero(
+    mock_vectorstore, mock_run, mock_get_config, capsys
+):
+    """main(["--version"]) prints bare package version to stdout, exits 0, no startup."""
+    from rag_mcp import __version__
+    from rag_mcp.server import main
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--version"])
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 0
+    assert captured.out.rstrip() == __version__
+    mock_get_config.assert_not_called()
+    mock_run.assert_not_called()
+    mock_vectorstore.assert_not_called()
