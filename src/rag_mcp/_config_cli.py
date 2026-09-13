@@ -6,6 +6,8 @@ from pathlib import Path
 
 import platformdirs
 
+from rag_mcp._cli import add_version_argument
+
 GLOBAL_TEMPLATE = """\
 # Global config for rag-mcp. See README for full reference.
 
@@ -27,6 +29,8 @@ persist_dir = "./.chroma"
 # at server startup. Must exist if set. Leave commented to skip auto-ingest.
 # directory = "./docs"
 collection = "default"
+# Optional ordered patterns: files start included; last match wins; '!' negates.
+# patterns = ["!private/**", "private/keep/**"]
 """
 
 
@@ -64,6 +68,7 @@ def main(argv: list[str] | None = None) -> None:
         prog="rag-mcp-config",
         description="Write starter config files for rag-mcp.",
     )
+    add_version_argument(parser)
     parser.add_argument(
         "command",
         nargs="?",

@@ -340,3 +340,121 @@ def test_get_config_caches(monkeypatch, tmp_path):
 
     monkeypatch.setattr(config, "_config", None)
     assert config.get_config() is config.get_config()
+
+
+def test_load_config_ingest_patterns_loaded_from_project_file(monkeypatch, tmp_path):
+    """Project [ingest] patterns is loaded into cfg.ingest_patterns."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    _write_project_config(
+        tmp_path,
+        f'[chroma]\npersist_dir = "{db}"\n[ingest]\npatterns = ["!private/**"]\n',
+    )
+    monkeypatch.chdir(tmp_path)
+
+    cfg = config.load_config(environ={})
+    assert cfg.ingest_patterns == ["!private/**"]
+
+
+def test_load_config_ingest_patterns_defaults_to_none(monkeypatch, tmp_path):
+    """Absent [ingest] patterns defaults to None."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    _write_project_config(tmp_path, f'[chroma]\npersist_dir = "{db}"\n')
+    monkeypatch.chdir(tmp_path)
+
+    cfg = config.load_config(environ={})
+    assert cfg.ingest_patterns is None
+
+
+def test_load_config_ingest_patterns_rejects_non_list(monkeypatch, tmp_path):
+    """Bare string for ingest.patterns raises ValueError."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    _write_project_config(
+        tmp_path,
+        f'[chroma]\npersist_dir = "{db}"\n[ingest]\npatterns = "private/**"\n',
+    )
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ValueError):
+        config.load_config(environ={})
+
+
+def test_load_config_ingest_patterns_rejects_non_string_element(monkeypatch, tmp_path):
+    """Non-string element in ingest.patterns raises ValueError."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    _write_project_config(
+        tmp_path,
+        f'[chroma]\npersist_dir = "{db}"\n[ingest]\npatterns = [1]\n',
+    )
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ValueError):
+        config.load_config(environ={})
+
+
+def test_load_config_ingest_patterns_rejects_bare_negation(monkeypatch, tmp_path):
+    """Bare '!' in ingest.patterns raises ValueError."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    _write_project_config(
+        tmp_path,
+        f'[chroma]\npersist_dir = "{db}"\n[ingest]\npatterns = ["!"]\n',
+    )
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ValueError):
+        config.load_config(environ={})
+
+
+def test_load_config_ingest_patterns_rejects_empty_string(monkeypatch, tmp_path):
+    """Empty string in ingest.patterns raises ValueError."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    _write_project_config(
+        tmp_path,
+        f'[chroma]\npersist_dir = "{db}"\n[ingest]\npatterns = [""]\n',
+    )
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ValueError):
+        config.load_config(environ={})
+
+
+def test_load_config_ingest_patterns_allows_empty_list(monkeypatch, tmp_path):
+    """Empty list for ingest.patterns is stored as []."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    _write_project_config(
+        tmp_path,
+        f'[chroma]\npersist_dir = "{db}"\n[ingest]\npatterns = []\n',
+    )
+    monkeypatch.chdir(tmp_path)
+
+    cfg = config.load_config(environ={})
+    assert cfg.ingest_patterns == []
+
+
+def test_load_config_rejects_ingest_patterns_in_global_config(monkeypatch, tmp_path):
+    """[ingest] patterns in global config.toml raises ValueError (project-local only)."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    global_path = _write_global_config(
+        tmp_path,
+        '[ingest]\npatterns = ["!private/**"]\n',
+    )
+    _write_project_config(tmp_path, f'[chroma]\npersist_dir = "{db}"\n')
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ValueError):
+        config.load_config(config_path=str(global_path), environ={})

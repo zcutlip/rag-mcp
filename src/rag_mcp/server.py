@@ -8,6 +8,7 @@ from typing import Any
 from mcp.server.mcpserver import MCPServer
 
 from rag_mcp import ingest
+from rag_mcp._cli import add_version_argument
 from rag_mcp.config import get_config
 from rag_mcp.embeddings import get_embeddings
 from rag_mcp.store import VectorStore
@@ -210,6 +211,7 @@ def sync() -> str:
         collection=config.ingest_collection,
         embeddings_host=config.embeddings_host,
         embeddings_model=config.embeddings_model,
+        patterns=config.ingest_patterns,
     )
     return (
         f"Synced '{config.ingest_dir}' into collection '{config.ingest_collection}': "
@@ -225,6 +227,7 @@ def main(argv: list[str] | None = None) -> None:
         prog="rag-mcp",
         description="Run the rag-mcp MCP server.",
     )
+    add_version_argument(parser)
     parser.add_argument(
         "command",
         nargs="?",
@@ -260,6 +263,7 @@ def main(argv: list[str] | None = None) -> None:
             collection=config.ingest_collection,
             embeddings_host=config.embeddings_host,
             embeddings_model=config.embeddings_model,
+            patterns=config.ingest_patterns,
         )
     mcp.run()
 

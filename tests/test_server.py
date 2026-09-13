@@ -439,3 +439,79 @@ def test_sync_description_mentions_configured_corpus():
     sync_tool = next(tool for tool in tools if tool.name == "sync")
     assert "configured" in sync_tool.description.lower()
     assert "collection" in sync_tool.description.lower()
+
+
+@patch("rag_mcp.server.get_config")
+@patch("rag_mcp.server.get_store")
+@patch("rag_mcp.server.ingest.sync_directory")
+def test_sync_forwards_configured_patterns(mock_sync, mock_get_store, mock_get_config):
+    """sync() forwards configured ingest_patterns to ingest.sync_directory."""
+    mock_get_config.return_value = MagicMock(
+        embeddings_host="http://localhost:11434",
+        embeddings_model="nomic-embed-text",
+        chroma_persist_dir="/tmp/chroma",
+        ingest_dir="/tmp/docs",
+        ingest_collection="docs",
+        ingest_patterns=["!private/**"],
+    )
+    mock_store = MagicMock()
+    mock_get_store.return_value = mock_store
+    mock_sync.return_value = {"added": 0, "updated": 0, "deleted": 0, "unchanged": 0}
+
+    from rag_mcp.server import sync
+
+    sync()
+    mock_sync.assert_called_once()
+    args, kwargs = mock_sync.call_args
+    assert args[0] is mock_store
+    assert args[1] == "/tmp/docs"
+    assert kwargs["collection"] == "docs"
+    assert kwargs["patterns"] == ["!private/**"]
+
+
+@patch("rag_mcp.server.get_config")
+@patch("rag_mcp.server.get_store")
+@patch("rag_mcp.server.ingest.sync_directory")
+def test_sync_forwards_no_patterns_when_unset(mock_sync, mock_get_store, mock_get_config):
+    """sync() forwards patterns=None when ingest_patterns is unset."""
+    mock_get_config.return_value = MagicMock(
+        embeddings_host="http://localhost:11434",
+        embeddings_model="nomic-embed-text",
+        chroma_persist_dir="/tmp/chroma",
+        ingest_dir="/tmp/docs",
+        ingest_collection="docs",
+        ingest_patterns=None,
+    )
+    mock_store = MagicMock()
+    mock_get_store.return_value = mock_store
+    mock_sync.return_value = {"added": 0, "updated": 0, "deleted": 0, "unchanged": 0}
+
+    from rag_mcp.server import sync
+
+    sync()
+    mock_sync.assert_called_once()
+    args, kwargs = mock_sync.call_args
+    assert args[0] is mock_store
+    assert args[1] == "/tmp/docs"
+    assert kwargs["collection"] == "docs"
+    assert kwargs["patterns"] is None
+
+
+@patch("rag_mcp.server.get_config")
+@patch("rag_mcp.server.mcp.run")
+@patch("rag_mcp.server.VectorStore")
+def test_main_version_prints_version_and_exits_zero(
+    mock_vectorstore, mock_run, mock_get_config, capsys
+):
+    """main(["--version"]) prints bare package version to stdout, exits 0, no startup."""
+    from rag_mcp import __version__
+    from rag_mcp.server import main
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--version"])
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 0
+    assert captured.out.rstrip() == __version__
+    mock_get_config.assert_not_called()
+    mock_run.assert_not_called()
+    mock_vectorstore.assert_not_called()

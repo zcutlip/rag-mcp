@@ -95,6 +95,8 @@ persist_dir = "./.chroma"
 [ingest]
 directory = "./docs"
 collection = "default"
+# Ordered include/exclude patterns (optional). Files start included; last match wins; '!' negates.
+# patterns = ["!private/**", "private/keep/**"]  # exclude private/** but re-include private/keep/**
 ```
 
 Relative paths in the project file resolve against the directory containing
@@ -130,7 +132,7 @@ This creates:
 If either file already exists, it's skipped with a note. The command is idempotent — safe to run multiple times.
 
 The command reports each path it writes or skips. `rag-mcp --help` prints server
-usage without loading configuration or starting the MCP server. If startup
+usage without loading configuration or starting the MCP server. `rag-mcp --version` and `rag-mcp-config --version` print the package version and exit. If startup
 configuration is missing or invalid, `rag-mcp` reports the error on stderr and
 suggests running `rag-mcp-config init`.
 
@@ -163,7 +165,9 @@ Register `rag-mcp` as a server in your MCP client. The recommended setup
 is to commit a `.rag-mcp.toml` in each project and have the client launch
 the server from the project root so cwd-walk-up finds it.
 
-**Claude Code** — project-scoped `.mcp.json` in the repo root:
+### Claude Code
+
+Project-scoped `.mcp.json` in the repo root:
 
 ```json
 {
@@ -175,7 +179,9 @@ the server from the project root so cwd-walk-up finds it.
 }
 ```
 
-**OpenCode** — `opencode.json` (or `.jsonc`):
+### OpenCode
+
+`opencode.json` (or `.jsonc`):
 
 ```jsonc
 {
@@ -190,8 +196,38 @@ the server from the project root so cwd-walk-up finds it.
 }
 ```
 
-If your client doesn't launch from the project root, or you can't use
-`.rag-mcp.toml`, set `RAG_MCP_*` env vars explicitly:
+### oh-my-pi (OMP)
+
+Add a project-scoped `.omp/mcp.json` in the repo root:
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/can1357/oh-my-pi/main/packages/coding-agent/src/config/mcp-schema.json",
+  "mcpServers": {
+    "rag": {
+      "type": "stdio",
+      "command": "rag-mcp",
+      "cwd": "."
+    }
+  }
+}
+```
+
+Launch OMP from the project root so `cwd: "."` resolves there and the
+cwd-walk-up finds `.rag-mcp.toml`. Inside OMP, use `/mcp reload` after
+editing, `/mcp list` to confirm the `rag` server came from `.omp/mcp.json`,
+and `/mcp test rag` to verify it connects.
+
+As a fallback, OMP also auto-discovers the OpenCode `opencode.json` and
+Claude Code `.mcp.json` examples above, so a project already configured for
+one of those clients needs no OMP-specific config.
+
+### Other agents
+
+If for some reason your client or agent can't use our config file
+(doesn't launch from the project root, can't write to it, etc.), set
+`RAG_MCP_*` env vars explicitly. The example below uses the Claude Code
+config format — adapt the `env` mapping to your client's own syntax:
 
 ```json
 {

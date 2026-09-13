@@ -16,6 +16,7 @@ class Config:
     chroma_persist_dir: str
     ingest_dir: str | None
     ingest_collection: str
+    ingest_patterns: list[str] | None = None
 
 
 DEFAULT_EMBEDDINGS_HOST = "http://localhost:11434"
@@ -128,6 +129,12 @@ def load_config(
             ``chroma.persist_dir`` is not configured.
     """
     global_data = _load_global_config(config_path, environ)
+    # ingest.patterns is project-local only — reject if present in global config
+    _global_ingest = global_data.get("ingest")
+    if isinstance(_global_ingest, dict) and "patterns" in _global_ingest:
+        raise ValueError(
+            "ingest.patterns is project-local and cannot be set in global config"
+        )
     embeddings_from_global = global_data.get("embeddings", {})
 
     project_path = _find_project_config_path()
@@ -148,6 +155,28 @@ def load_config(
 
     chroma = project_data.get("chroma", {})
     ingest = project_data.get("ingest", {})
+
+    # Parse and validate ingest.patterns (project-local only)
+    if not isinstance(ingest, dict) or "patterns" not in ingest:
+        ingest_patterns: list[str] | None = None
+    else:
+        raw_patterns = ingest["patterns"]
+        if not isinstance(raw_patterns, list):
+            raise ValueError("ingest.patterns must be a list")
+        for pat in raw_patterns:
+            if not isinstance(pat, str):
+                raise ValueError("ingest.patterns must be a list of strings")
+            if pat == "" or pat == "!":
+                raise ValueError(
+                    "ingest.patterns must not contain empty string or bare '!'"
+                )
+            if pat.startswith("!"):
+                remainder = pat[1:]
+                if remainder == "" or remainder == "!":
+                    raise ValueError(
+                        "ingest.patterns must not contain empty string or bare '!'"
+                    )
+        ingest_patterns = raw_patterns
 
     persist_dir_raw = environ.get(
         "RAG_MCP_CHROMA_PERSIST_DIR", chroma.get("persist_dir", "")
@@ -185,6 +214,7 @@ def load_config(
         chroma_persist_dir=persist_dir,
         ingest_dir=ingest_dir,
         ingest_collection=ingest_collection,
+        ingest_patterns=ingest_patterns,
     )
 
 
