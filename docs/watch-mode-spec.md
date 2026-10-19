@@ -1,8 +1,8 @@
 # Ingest Watch Mode Spec
 
 Issue: #1
-Status: planned
-Branch: TBD (planned name `feature/1-watch-mode`)
+Status: in progress (spec amended 2026-10-18: interval locked as configurable)
+Branch: dev/1-watch-mode (created with `scripts/issue-branch create feature 1 watch-mode`, dev version 2.2.0.dev1+issue-1-watch-mode)
 
 ## Objective
 
@@ -35,7 +35,7 @@ watcher without user intervention.
 |---|---|
 | Default | Watch ON whenever `ingest.directory` is set |
 | Opt-out | `ingest.watch = false` / `RAG_MCP_INGEST_WATCH=false` |
-| Interval | `ingest.watch_interval`, default 30 (validation TBD below) |
+| Interval | `ingest.watch_interval` (seconds), default 30 — configurable; positive integer validated eagerly (fails fast with `ValueError` on non-int, zero, or negative) |
 | Mechanism | Polling daemon thread started in `main()`, no new dependencies |
 | Error policy | A failed tick (disk error, Ollama down) is caught, logged to stderr, and the loop continues — the next tick retries; sync is idempotent |
 | Import safety | Watcher starts only in `main()`, never at module import |
@@ -91,8 +91,9 @@ documented future mitigations.
 
 ## Process
 
-1. Issue branch: `./scripts/issue-branch create feature 1 watch-mode`
-2. RED (tests) → user review/approval gate
-3. GREEN (implementation) → user review gate
-4. Docs updates → user review gate
-5. User reviews, commits, merges, releases (minor bump → v2.2.0)
+1. Issue branch: `scripts/issue-branch create feature 1 watch-mode`
+2. Spec amendment (this file): branch metadata + interval decision lock → user review/approval gate
+3. RED (tests) → user review/approval gate
+4. GREEN (implementation) → user review gate
+5. Docs updates → user review gate
+6. User reviews, commits, merges (`scripts/issue-branch finish`), releases (minor → v2.2.0)
