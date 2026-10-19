@@ -37,6 +37,7 @@ watcher without user intervention.
 | Opt-out | `ingest.watch = false` / `RAG_MCP_INGEST_WATCH=false` |
 | Interval | `ingest.watch_interval` (seconds), default 30 — configurable; positive integer validated eagerly (fails fast with `ValueError` on non-int, zero, or negative) |
 | Mechanism | Polling daemon thread started in `main()`, no new dependencies |
+| Tick order | Sleep-first each tick: `_watch_loop` sleeps `interval`, then syncs when not cancelled — the first watcher sync lands one interval after start, so the watcher never duplicates the startup auto-ingest sync |
 | Error policy | A failed tick (disk error, Ollama down) is caught, logged to stderr, and the loop continues — the next tick retries; sync is idempotent |
 | Import safety | Watcher starts only in `main()`, never at module import |
 | Env bool strictness | `RAG_MCP_INGEST_WATCH` accepts only `true`/`false` (case-insensitive); any other value raises `ValueError` naming the env var — fail fast, not truthy-tolerant |
@@ -55,10 +56,14 @@ watcher without user intervention.
   started in `main()` after the startup auto-ingest. Helper shapes are
   pinned by the tests:
   - `_watch_loop(sync, interval, sleep_fn, cancel_event)` — injectable
-    sleep (tests never sleep in real time); each tick calls `sync` first,
-    then sleeps `interval`; a `threading.Event` cancel ends the loop
-    cleanly before the next tick; a failed tick logs the exception message
-    to stderr (no traceback) and the loop continues.
+    sleep (tests never sleep in real time); each tick sleeps `interval`
+    first, then calls `sync` when the `threading.Event` cancel is not set;
+    a cancel ends the loop cleanly; a failed sync logs the exception
+    message to stderr (no traceback) and the loop continues with the next
+    sleep. Amended post-RED: sleep-first tagging (was sync-first; the
+    sync-first shape double-synced at startup alongside the auto-ingest —
+    test `test_watch_loop_no_sleep_before_first_tick` was replaced at the
+    user's contract-amendment gate by `test_watch_loop_sleeps_before_first_tick`).
   - `_make_sync_fn(store, cfg)` — builds the per-tick sync callable;
     invokes `ingest.sync_directory(store, ingest_dir, collection=...,
     embeddings_host=..., embeddings_model=..., patterns=...)` — the same
@@ -103,6 +108,10 @@ guard: no watcher exists to start, and it will stay green through GREEN.
   - invalid interval values → `ValueError` (non-int, zero, negative)
 - `test_ingest_watch.py` (new):
   - injectable sleep function so tests never sleep in real time
+  - loop syncs one interval after a sleep; sleeps-before-first-tick
+    semantics (amended: was sync-then-sleep; replaced test
+    `test_watch_loop_no_sleep_before_first_tick` →
+    `test_watch_loop_sleeps_before_first_tick`)
   - sync called with the right arguments on each tick
   - a failed tick logs to stderr and the loop continues
   - loop stops cleanly on cancel
