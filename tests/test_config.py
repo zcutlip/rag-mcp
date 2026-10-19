@@ -458,3 +458,107 @@ def test_load_config_rejects_ingest_patterns_in_global_config(monkeypatch, tmp_p
 
     with pytest.raises(ValueError):
         config.load_config(config_path=str(global_path), environ={})
+
+
+def test_load_config_watch_defaults(monkeypatch, tmp_path):
+    """ingest.watch defaults to True and watch_interval to 30 when unset."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    _write_project_config(tmp_path, f'[chroma]\npersist_dir = "{db}"\n')
+    monkeypatch.chdir(tmp_path)
+
+    cfg = config.load_config(environ={})
+    assert cfg.ingest_watch is True
+    assert cfg.ingest_watch_interval == 30
+
+
+def test_project_watch_settings_parsed(monkeypatch, tmp_path):
+    """Project [ingest] watch / watch_interval are parsed from .rag-mcp.toml."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    db = tmp_path / "db"
+    _write_project_config(
+        tmp_path,
+        f'[chroma]\npersist_dir = "{db}"\n'
+        f'[ingest]\ndirectory = "{docs}"\nwatch = false\nwatch_interval = 10\n',
+    )
+    monkeypatch.chdir(tmp_path)
+
+    cfg = config.load_config(environ={})
+    assert cfg.ingest_watch is False
+    assert cfg.ingest_watch_interval == 10
+
+
+def test_watch_env_overrides_project_file(monkeypatch, tmp_path):
+    """RAG_MCP_INGEST_WATCH / RAG_MCP_INGEST_WATCH_INTERVAL beat the project file."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    db = tmp_path / "db"
+    _write_project_config(
+        tmp_path,
+        f'[chroma]\npersist_dir = "{db}"\n'
+        f'[ingest]\ndirectory = "{docs}"\nwatch = false\nwatch_interval = 10\n',
+    )
+    monkeypatch.chdir(tmp_path)
+
+    cfg = config.load_config(
+        environ={
+            "RAG_MCP_INGEST_WATCH": "true",
+            "RAG_MCP_INGEST_WATCH_INTERVAL": "5",
+        }
+    )
+    assert cfg.ingest_watch is True
+    assert cfg.ingest_watch_interval == 5
+    assert isinstance(cfg.ingest_watch_interval, int)
+
+
+def test_watch_env_invalid_bool_raises(monkeypatch, tmp_path):
+    """RAG_MCP_INGEST_WATCH accepts only true/false (case-insensitive) and raises otherwise."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    _write_project_config(tmp_path, f'[chroma]\npersist_dir = "{db}"\n')
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ValueError, match="RAG_MCP_INGEST_WATCH"):
+        config.load_config(environ={"RAG_MCP_INGEST_WATCH": "yes"})
+
+
+def test_watch_interval_env_invalid_values_raise(monkeypatch, tmp_path):
+    """RAG_MCP_INGEST_WATCH_INTERVAL must parse to a positive integer."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    _write_project_config(tmp_path, f'[chroma]\npersist_dir = "{db}"\n')
+    monkeypatch.chdir(tmp_path)
+
+    for bad in ["0", "-3", "abc"]:
+        with pytest.raises(ValueError, match="ingest.watch_interval"):
+            config.load_config(
+                environ={"RAG_MCP_INGEST_WATCH_INTERVAL": bad}
+            )
+
+
+def test_project_watch_interval_invalid_values_raise(monkeypatch, tmp_path):
+    """[ingest] watch_interval must be a positive integer (zero, negative, non-int raise)."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    db = tmp_path / "db"
+    monkeypatch.chdir(tmp_path)
+
+    for bad_toml in (
+        f'[chroma]\npersist_dir = "{db}"\n[ingest]\ndirectory = "{docs}"\nwatch_interval = 0\n',
+        f'[chroma]\npersist_dir = "{db}"\n[ingest]\ndirectory = "{docs}"\nwatch_interval = -3\n',
+        f'[chroma]\npersist_dir = "{db}"\n[ingest]\ndirectory = "{docs}"\nwatch_interval = "ten"\n',
+        f'[chroma]\npersist_dir = "{db}"\n[ingest]\ndirectory = "{docs}"\nwatch_interval = 2.5\n',
+    ):
+        _write_project_config(tmp_path, bad_toml)
+        with pytest.raises(ValueError, match="ingest.watch_interval"):
+            config.load_config(environ={})
