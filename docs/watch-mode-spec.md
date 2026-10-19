@@ -39,6 +39,9 @@ watcher without user intervention.
 | Mechanism | Polling daemon thread started in `main()`, no new dependencies |
 | Error policy | A failed tick (disk error, Ollama down) is caught, logged to stderr, and the loop continues — the next tick retries; sync is idempotent |
 | Import safety | Watcher starts only in `main()`, never at module import |
+| Env bool strictness | `RAG_MCP_INGEST_WATCH` accepts only `true`/`false` (case-insensitive); any other value raises `ValueError` naming the env var — fail fast, not truthy-tolerant |
+| Interval validation | `[ingest] watch_interval` and `RAG_MCP_INGEST_WATCH_INTERVAL` must parse to a positive integer; TOML accepts int only (zero, negative, non-int, float raise `ValueError`) |
+| Error message | Both TOML- and env-originated interval/constraint errors report `ingest.watch_interval` in the message (single phrasing for both sources) |
 
 ## Scope
 
@@ -49,9 +52,19 @@ watcher without user intervention.
   overrides `RAG_MCP_INGEST_WATCH` and `RAG_MCP_INGEST_WATCH_INTERVAL`,
   and project TOML keys `[ingest] watch` / `[ingest] watch_interval`.
 - `server.py`: a `_start_watcher()` helper plus a daemon thread loop
-  started in `main()` after the startup auto-ingest. Each tick calls
-  `sync_directory` with the same arguments the startup auto-ingest passes:
-  store, ingest dir, collection, embeddings host/model, patterns.
+  started in `main()` after the startup auto-ingest. Helper shapes are
+  pinned by the tests:
+  - `_watch_loop(sync, interval, sleep_fn, cancel_event)` — injectable
+    sleep (tests never sleep in real time); each tick calls `sync` first,
+    then sleeps `interval`; a `threading.Event` cancel ends the loop
+    cleanly before the next tick; a failed tick logs the exception message
+    to stderr (no traceback) and the loop continues.
+  - `_make_sync_fn(store, cfg)` — builds the per-tick sync callable;
+    invokes `ingest.sync_directory(store, ingest_dir, collection=...,
+    embeddings_host=..., embeddings_model=..., patterns=...)` — the same
+    arguments the startup auto-ingest passes.
+  - `_start_watcher(sync, interval)` — spawns the daemon `threading.Thread`
+    (`daemon=True`) running `_watch_loop`.
 - Documentation: new `docs/watch-mode-spec.md` (this file), README section,
   AGENTS.md env-var list and ingestion architecture paragraph,
   `docs/configuration-spec.md` key tables.
@@ -76,6 +89,12 @@ multi-session use a single-writer lockfile or client/server mode remain
 documented future mitigations.
 
 ## Test plan (RED, flat style, tests as locked contract)
+
+Status: **RED established** — 15 contract-shaped failures; the 16th new test
+(`test_import_server_starts_no_thread`) passes immediately as a disclosed
+guard: no watcher exists to start, and it will stay green through GREEN.
+(`test_config.py` +6, `test_server.py` +3, `tests/test_ingest_watch.py` new 7;
+62 passing elsewhere unchanged).
 
 - `test_config.py` additions:
   - defaults: `ingest_watch=True`, `ingest_watch_interval=30`
