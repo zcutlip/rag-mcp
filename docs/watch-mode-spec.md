@@ -91,7 +91,7 @@ documented future mitigations.
 
 ## Process
 
-1. Issue branch: `./scripts/issue-branch.sh create feature 1 watch-mode`
+1. Issue branch: `./scripts/issue-branch create feature 1 watch-mode`
 2. RED (tests) → user review/approval gate
 3. GREEN (implementation) → user review gate
 4. Docs updates → user review gate
