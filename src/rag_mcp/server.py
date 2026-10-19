@@ -245,18 +245,20 @@ def _make_sync_fn(store: VectorStore, config: Any):
 def _watch_loop(sync, interval: int, sleep_fn, cancel: threading.Event) -> None:
     """Poll ``sync`` every ``interval`` seconds until ``cancel`` is set.
 
-    Each tick calls ``sync`` first, then sleeps for ``interval`` seconds.
-    A failed tick (the sync callable raising anything) is logged to stderr
-    and the loop continues — the next tick retries. The cancel event is
-    checked after each sleep, so a cancel set mid-sleep ends the loop
-    cleanly.
+    Each tick sleeps ``interval`` seconds first, then calls ``sync`` when
+    the cancel event is not set — so the first sync lands one interval
+    after the loop starts. A failed sync (the callable raising anything)
+    is logged to stderr and the loop continues — the next sleep retries.
+    The cancel event ends the loop cleanly, including mid-sleep.
     """
     while not cancel.is_set():
+        sleep_fn(interval)
+        if cancel.is_set():
+            return
         try:
             sync()
-        except Exception as exc:  # noqa: BLE001 — any tick failure is retried
+        except Exception as exc:  # noqa: BLE001 — any sync failure is retried
             print(f"watch sync failed: {exc!r}", file=sys.stderr)
-        sleep_fn(interval)
 
 
 def _start_watcher(sync, interval: int) -> None:
