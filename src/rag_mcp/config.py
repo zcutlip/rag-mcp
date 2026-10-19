@@ -17,11 +17,14 @@ class Config:
     ingest_dir: str | None
     ingest_collection: str
     ingest_patterns: list[str] | None = None
+    ingest_watch: bool = True
+    ingest_watch_interval: int = 30
 
 
 DEFAULT_EMBEDDINGS_HOST = "http://localhost:11434"
 DEFAULT_EMBEDDINGS_MODEL = "nomic-embed-text"
 DEFAULT_INGEST_COLLECTION = "default"
+DEFAULT_INGEST_WATCH_INTERVAL = 30
 
 PROJECT_CONFIG_FILENAME = ".rag-mcp.toml"
 
@@ -80,6 +83,52 @@ def _resolve_path(value: str, root: str | None) -> str:
     if not resolved.is_relative_to(root_resolved):
         raise ValueError(f"Path escapes project root: {value!r}")
     return str(resolved)
+
+
+def _parse_watch_bool(environ: Mapping[str, str]) -> bool | None:
+    """Parse the ``RAG_MCP_INGEST_WATCH`` env override.
+
+    Returns ``None`` when the variable is unset. Accepts only
+    ``true``/``false`` (case-insensitive); anything else is a ``ValueError``.
+    """
+    raw = environ.get("RAG_MCP_INGEST_WATCH")
+    if raw is None:
+        return None
+    lowered = raw.lower()
+    if lowered == "true":
+        return True
+    if lowered == "false":
+        return False
+    raise ValueError(
+        f"RAG_MCP_INGEST_WATCH must be 'true' or 'false', got: {raw!r}"
+    )
+
+
+def _parse_watch_interval(
+    raw: str | int, source: str
+) -> int:
+    """Validate a watch interval from TOML (int) or env (string).
+
+    Returns the interval when it is a positive integer; raises ``ValueError``
+    otherwise. ``source`` names the config key for error messages
+    (``ingest.watch_interval`` for both TOML and env values).
+    """
+    if isinstance(raw, bool):
+        raise ValueError(f"{source} must be a positive integer: {raw!r}")
+    if isinstance(raw, str):
+        try:
+            value = int(raw)
+        except ValueError:
+            raise ValueError(
+                f"{source} must be a positive integer: {raw!r}"
+            ) from None
+    elif isinstance(raw, int):
+        value = raw
+    else:
+        raise ValueError(f"{source} must be a positive integer: {raw!r}")
+    if value <= 0:
+        raise ValueError(f"{source} must be a positive integer: {raw!r}")
+    return value
 
 
 def _load_global_config(
@@ -178,6 +227,29 @@ def load_config(
                     )
         ingest_patterns = raw_patterns
 
+    # Watch settings: defaults, project TOML, env overrides (project-local [ingest])
+    ingest_watch_env = _parse_watch_bool(environ)
+    if ingest_watch_env is not None:
+        ingest_watch = ingest_watch_env
+    elif isinstance(ingest.get("watch", True), bool):
+        ingest_watch = ingest["watch"] if "watch" in ingest else True
+    else:
+        raise ValueError(
+            "ingest.watch must be a boolean: "
+            f"{ingest.get('watch')!r}"
+        )
+
+    if "RAG_MCP_INGEST_WATCH_INTERVAL" in environ:
+        ingest_watch_interval = _parse_watch_interval(
+            environ["RAG_MCP_INGEST_WATCH_INTERVAL"], "ingest.watch_interval"
+        )
+    elif "watch_interval" in ingest:
+        ingest_watch_interval = _parse_watch_interval(
+            ingest["watch_interval"], "ingest.watch_interval"
+        )
+    else:
+        ingest_watch_interval = DEFAULT_INGEST_WATCH_INTERVAL
+
     persist_dir_raw = environ.get(
         "RAG_MCP_CHROMA_PERSIST_DIR", chroma.get("persist_dir", "")
     )
@@ -215,6 +287,8 @@ def load_config(
         ingest_dir=ingest_dir,
         ingest_collection=ingest_collection,
         ingest_patterns=ingest_patterns,
+        ingest_watch=ingest_watch,
+        ingest_watch_interval=ingest_watch_interval,
     )
 
 
