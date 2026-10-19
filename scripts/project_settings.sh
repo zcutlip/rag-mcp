@@ -1,3 +1,5 @@
+# shellcheck shell=sh
+# Sourced by functions.sh; not executed directly.
 # shellcheck disable=SC2034
 # Project settings for repo management scripts (copied from the upstream
 # example_project_settings.sh). Referenced by functions.sh next to the
