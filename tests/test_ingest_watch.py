@@ -51,18 +51,25 @@ def test_watch_loop_stops_cleanly_on_cancel():
     sync.assert_not_called()
 
 
-def test_watch_loop_no_sleep_before_first_tick():
-    """The first sync happens immediately, before the first sleep."""
+def test_watch_loop_sleeps_before_first_tick():
+    """The loop sleeps before its first sync; cancel mid-sleep ends the loop.
+
+    Amended from test_watch_loop_no_sleep_before_first_tick (sync-then-sleep)
+    at the contract-amendment gate: sleep-first avoids double-syncing at
+    startup alongside the auto-ingest pass.
+    """
     order = []
     sync = MagicMock(side_effect=lambda: order.append("sync"))
     cancel = threading.Event()
 
     def fake_sleep(_interval):
         order.append("sleep")
-        cancel.set()
+        if order.count("sleep") >= 2:
+            cancel.set()
 
     server._watch_loop(sync, 30, fake_sleep, cancel)
-    assert order == ["sync", "sleep"]
+    assert order == ["sleep", "sync", "sleep"]
+    assert sync.call_count == 1
 
 
 def test_make_sync_fn_passes_ingest_args():
