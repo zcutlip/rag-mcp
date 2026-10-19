@@ -38,9 +38,14 @@ watcher without user intervention.
 | Interval | `ingest.watch_interval` (seconds), default 30 — configurable; positive integer validated eagerly (fails fast with `ValueError` on non-int, zero, or negative) |
 | Mechanism | Polling daemon thread started in `main()`, no new dependencies |
 | Tick order | Sleep-first each tick: `_watch_loop` sleeps `interval`, then syncs when not cancelled — the first watcher sync lands one interval after start, so the watcher never duplicates the startup auto-ingest sync |
-| Error policy | A failed tick (disk error, Ollama down) is caught, logged to stderr, and the loop continues — the next tick retries; sync is idempotent |
+| Error policy | A failed sync raises `Exception` (any non-`BaseException`); it is caught, logged to stderr as a single line — `watch sync failed: {exc!r}` — no traceback, and the loop continues with the next sleep. `BaseException` subclasses (e.g. `KeyboardInterrupt`) are NOT caught: they kill the watcher thread; the server process is unaffected (daemon thread). A `sleep_fn` failure is likewise uncaught (production sleep is `time.sleep`, which cannot meaningfully fail) |
+| Cancel semantics (pinned post-RED) | The cancel `threading.Event` is a test seam; no production code sets it. All phases pinned: **before loop** → no-op (never sleeps, never syncs); **mid-sleep** → the armed tick's sync is suppressed and the loop exits immediately (prompt exit — a stopped watcher never fires one more sync); **mid-sync** → the in-flight sync completes, the loop exits before the next sleep. Teardown is process exit (daemon thread dies with the process); there is no production stop path |
+| Start gating | The watcher starts in `main()` only when `ingest_dir` is set AND `ingest_watch` is true, after the startup auto-ingest has run (or would have — same condition on `ingest_dir`). It is never started at module import |
+| Config capture | The watcher closes over the resolved `Config` at start; config snapshot semantics apply — edits to `.rag-mcp.toml` mid-run (host, model, patterns, interval, watch flag) take effect only on restart |
+| No production stop path | Nothing in `server.py` sets the watcher's cancel event; the daemon thread dies with the process. The cancel event exists as a test seam and any future stop mechanism is out of scope for this issue
 | Import safety | Watcher starts only in `main()`, never at module import |
-| Env bool strictness | `RAG_MCP_INGEST_WATCH` accepts only `true`/`false` (case-insensitive); any other value raises `ValueError` naming the env var — fail fast, not truthy-tolerant |
+| Env bool strictness | `RAG_MCP_INGEST_WATCH` accepts only `true`/`false` (case-insensitive); any other value — including the empty string — raises `ValueError` naming the env var. An unset variable is the only way to "not set" it; empty string is invalid, not absent (fail fast, not truthy-tolerant) |
+| TOML watch strictness | `[ingest] watch` accepts only a TOML boolean; any non-bool (`"yes"`, string, int) raises `ValueError` naming `ingest.watch` |
 | Interval validation | `[ingest] watch_interval` and `RAG_MCP_INGEST_WATCH_INTERVAL` must parse to a positive integer; TOML accepts int only (zero, negative, non-int, float raise `ValueError`) |
 | Error message | Both TOML- and env-originated interval/constraint errors report `ingest.watch_interval` in the message (single phrasing for both sources) |
 
@@ -56,14 +61,14 @@ watcher without user intervention.
   started in `main()` after the startup auto-ingest. Helper shapes are
   pinned by the tests:
   - `_watch_loop(sync, interval, sleep_fn, cancel_event)` — injectable
-    sleep (tests never sleep in real time); each tick sleeps `interval`
-    first, then calls `sync` when the `threading.Event` cancel is not set;
-    a cancel ends the loop cleanly; a failed sync logs the exception
-    message to stderr (no traceback) and the loop continues with the next
-    sleep. Amended post-RED: sleep-first tagging (was sync-first; the
-    sync-first shape double-synced at startup alongside the auto-ingest —
-    test `test_watch_loop_no_sleep_before_first_tick` was replaced at the
-    user's contract-amendment gate by `test_watch_loop_sleeps_before_first_tick`).
+    sleep (tests never sleep in real time). Per-tick order and all cancel
+    phases are pinned in the Locked decisions table (sleep-first; prompt
+    exit; mid-sync completes). Amended post-RED: sleep-first tagging (was
+    sync-first; the sync-first shape double-synced at startup alongside the
+    auto-ingest — test `test_watch_loop_no_sleep_before_first_tick` was
+    replaced at the user's contract-amendment gate by
+    `test_watch_loop_sleeps_before_first_tick`); cancel-mid-sleep pinned to
+    prompt exit (post-RED amendment 2).
   - `_make_sync_fn(store, cfg)` — builds the per-tick sync callable;
     invokes `ingest.sync_directory(store, ingest_dir, collection=...,
     embeddings_host=..., embeddings_model=..., patterns=...)` — the same
@@ -106,15 +111,23 @@ guard: no watcher exists to start, and it will stay green through GREEN.
   - project-file parsing: `[ingest] watch` / `watch_interval`
   - env overrides: `RAG_MCP_INGEST_WATCH`, `RAG_MCP_INGEST_WATCH_INTERVAL`
   - invalid interval values → `ValueError` (non-int, zero, negative)
+  - (post-RED amendment 3 additions) non-bool TOML `watch` → `ValueError`
+    naming `ingest.watch`; empty-string `RAG_MCP_INGEST_WATCH` → `ValueError`
+    naming the env var
 - `test_ingest_watch.py` (new):
   - injectable sleep function so tests never sleep in real time
   - loop syncs one interval after a sleep; sleeps-before-first-tick
     semantics (amended: was sync-then-sleep; replaced test
     `test_watch_loop_no_sleep_before_first_tick` →
     `test_watch_loop_sleeps_before_first_tick`)
-  - sync called with the right arguments on each tick
-  - a failed tick logs to stderr and the loop continues
-  - loop stops cleanly on cancel
+  - sync called with the right arguments on each tick; cancel mid-sleep
+    suppresses the armed tick (post-RED amendment 2: thresholds ≥3 sleeps /
+    2 syncs, ≥4 sleeps / 3 syncs — prompt exit)
+  - a failed tick logs to stderr (`watch sync failed: {exc!r}`, no
+    traceback) and the loop continues
+  - loop stops cleanly on cancel (preset → no-op)
+  - mid-sync cancel: in-flight sync completes, no further sleep — pinned
+    by amendment 3
   - importing `rag_mcp.server` starts no watcher
 
 ## Process
@@ -125,3 +138,25 @@ guard: no watcher exists to start, and it will stay green through GREEN.
 4. GREEN (implementation) → user review gate
 5. Docs updates → user review gate
 6. User reviews, commits, merges (`scripts/issue-branch finish`), releases (minor → v2.2.0)
+
+## Amendment ledger
+
+- **Amendment 1** (user-approved, committed): interval locked as configurable
+  `ingest.watch_interval`, default 30, positive-int validation, env
+  `RAG_MCP_INGEST_WATCH_INTERVAL`; branch metadata recorded.
+- **Amendment 2** (user-approved, committed): RED disclosures pinned — helper
+  shapes, tick order sleep-first (replacing sync-first, which double-synced
+  at startup), env/TOML validation strictness, error-message phrasing.
+  Test replaced: `test_watch_loop_no_sleep_before_first_tick` →
+  `test_watch_loop_sleeps_before_first_tick`.
+- **Amendment 3** (consolidated, this change): full exit-path audit. Pinned:
+  cancel semantics in all three phases (before-loop no-op, mid-sleep prompt
+  exit, mid-sync complete-then-exit); exception breadth (`Exception` caught,
+  `BaseException` kills the thread, `sleep_fn` failure uncaught); start
+  gating condition (`ingest_dir` AND `ingest_watch`); config capture
+  (snapshot at start, restart to re-read); TOML `watch` non-bool rejects;
+  env watch empty-string rejects; failed-tick log format. Riding the same
+  gate: test amendments for cancel-mid-sleep prompt exit (thresholds ≥3/≥4)
+  and new tests for the two untested exit paths in `test_config.py`.
+  Root cause recorded: cancel-mid-sleep was left unpinned at RED, so the
+  two RED-era tests invented contradictory codes for it.
