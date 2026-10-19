@@ -1,4 +1,5 @@
 """RAG MCP server package."""
 
-__version__ = "2.1.0"
+from rag_mcp.__about__ import __version__
+
 __all__ = ["__version__"]
