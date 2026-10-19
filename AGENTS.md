@@ -18,7 +18,8 @@ Client (MCP) → server.py (MCPServer) → get_embeddings() → Ollama API
 - `store.py`: ChromaDB wrapper class `VectorStore` with add/query/upsert/get_all_metadata/delete_ids/list_collections/delete_collection operations
 - `ingest.py`: directory-to-vector-store sync (`should_include`, `iter_markdown_files`, `chunk_text`, `file_hash`, `sync_directory` with `patterns` filtering, `parse_frontmatter`, `strip_frontmatter`). Parses YAML frontmatter from markdown files and stores metadata (title, url, tags, created, updated). `should_include` is the pure `fnmatch` matcher (ordered patterns, last-match-wins, `!` negates, case-insensitive). The one module that composes the other two — takes a `VectorStore` instance plus `embeddings_host`/`embeddings_model` as parameters (never globals) so it stays unit-testable
 - `_config_cli.py`: CLI for `rag-mcp-config init` utility, writes starter global and project config files
-- `__init__.py`: Package marker, exports `__version__`
+- `__about__.py`: Package version single source of truth (`__version__`)
+- `__init__.py`: Package marker, re-exports `__version__` from `__about__.py`
 
 **Data flow:**
 1. `main()` loads config via `get_config()` (fail fast) and builds the `VectorStore` from `chroma_persist_dir`
@@ -43,7 +44,8 @@ src/rag_mcp/          # Source modules (src-layout)
   ingest.py           # Markdown directory sync
   _cli.py             # Shared CLI helpers (bare --version flag for all entry points)
   _config_cli.py      # CLI for rag-mcp-config init utility
-  __init__.py         # Package marker (exports __version__)
+  __about__.py        # Package version single source of truth
+  __init__.py         # Package marker (re-exports __version__ from __about__.py)
 tests/                # Test suite (flat structure, no classes)
   test_config.py      # 31 tests for configuration loading (global + project + env + ingest patterns)
   test_config_cli.py  # 8 tests for rag-mcp-config init utility
@@ -56,7 +58,17 @@ tests/                # Test suite (flat structure, no classes)
   test_query_structured.py # 8 tests for structured query responses
   test_ingest_patterns.py # 15 tests for ordered patterns filtering (should_include + sync integration)
   test_version.py     # 1 test for package version (allows .dev local versions)
-scripts/              # Workflow automation (issue-branch.sh, git-rename-tag.sh)
+scripts/
+  issue-branch      # repo-mgmt-scripts lifecycle core (symlink into the submodule)
+  deletebranch      # repo-mgmt-scripts: delete branch local+origin
+  release / tag     # repo-mgmt-scripts utility entry points
+  functions.sh      # repo-mgmt-scripts shared helpers (symlink)
+  read_about_version.py / write_about_version.py  # version file tooling (symlinks)
+  project_settings.sh  # per-project suite configuration
+  run-tests.sh      # test gate (referenced by project_settings.sh)
+  git-rename-tag.sh # tag utility
+submodules/
+  repo-mgmt-scripts/  # the shared workflow suite (git submodule)
 docs/                 # Current specs
 docs/archive/         # Completed/superseded specs, named YYYY-MM-DD-<topic>-spec.md
 .rag-mcp.toml         # Optional project-local config (chromadb + ingest, version-controllable)
@@ -221,12 +233,17 @@ pytest tests/test_server.py  # run specific module
 
 ## Issue Branch Workflow
 
-**IMPORTANT: Use the helper script `scripts/issue-branch.sh` for all issue-related operations.**
+**IMPORTANT: Use the helper script `scripts/issue-branch` for all issue-related operations.**
 Do not manually run git commands for creating issue branches, bumping versions, or merging.
+The suite is the shared `repo-mgmt-scripts` submodule, referenced via symlinks in
+`scripts/` and configured by `scripts/project_settings.sh`. After a fresh clone:
+`git submodule update --init`.
 
-- **Creating issue branches:** `./scripts/issue-branch.sh create <type> <issue-number> <short-desc>`
-- **Finishing and merging:** `./scripts/issue-branch.sh finish`
-- **Cutting a release without an issue:** `./scripts/issue-branch.sh release [--major|--minor|--patch]`
-- **Checking status:** `./scripts/issue-branch.sh status`
+- **Creating issue branches:** `scripts/issue-branch create <type> <issue-number> <short-slug>` (types: `feature|fix|docs|refactor|test|chore`; branches are `dev/<issue>-<short-slug>`)
+- **Finishing and merging:** `scripts/issue-branch finish` — runs tests, promotes the changelog, merges `--no-ff` into `main`, and tags; there is no separate manual merge
+- **Cutting a release without an issue:** `scripts/issue-branch release` (main-only; never mutates the version — bump the version in `src/rag_mcp/__about__.py` first if needed)
+- **Checking status:** `scripts/issue-branch status`
+- **Agent boundaries:** create/switch local branches only; never push; never pass `--skip-tests`/`--skip-changelog`; the helper's commits are user-directed
+- **Version truth:** `src/rag_mcp/__about__.py`; never bump the version in `pyproject.toml`
 
 For full documentation, see `docs/issue-branch-workflow.md`.

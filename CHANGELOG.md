@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Adopted the shared repo-mgmt-scripts issue/branch/tag/release workflow as a
+  git submodule, replacing the bespoke `scripts/issue-branch.sh`. Branch
+  template is `dev/<issue>-<short-slug>` (no type prefix; type is the `create`
+  argument and sets the bump level). Version truth moved from
+  `src/rag_mcp/__init__.py` to `src/rag_mcp/__about__.py` (`__init__.py`
+  re-exports `__version__`).
 
 ## [2.1.0] - 2026-09-12
 

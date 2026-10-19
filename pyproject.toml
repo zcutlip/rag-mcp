@@ -50,7 +50,7 @@ Issues = "https://github.com/zcutlip/rag-mcp/issues"
 where = ["src"]
 
 [tool.setuptools.dynamic]
-version = { attr = "rag_mcp.__version__" }
+version = { attr = "rag_mcp.__about__.__version__" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

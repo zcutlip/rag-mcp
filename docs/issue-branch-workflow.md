@@ -2,317 +2,178 @@
 
 ## Overview
 
-When working on issues from the GitHub issue tracker, use dedicated
-branches with specific naming and version management conventions.
+Issue work runs on dedicated branches managed by the shared
+[repo-mgmt-scripts](https://github.com/zcutlip/repo-mgmt-scripts) suite,
+consumed as a git submodule.
 
-**IMPORTANT: Use the helper script `scripts/issue-branch.sh` for all issue-related operations.**
-Do not manually run git commands for creating issue branches, bumping versions, or merging.
+**IMPORTANT: Use the helper script `scripts/issue-branch` for all issue-related
+operations.** Do not manually run git commands for creating issue branches,
+bumping versions, or merging.
 
-## Critical Rules
+## Setup
 
-1. **Use the helper script for issue work** - When working on GitHub issues, always use `scripts/issue-branch.sh` for:
-   - Creating issue branches
-   - Bumping versions
-   - Finishing and merging
+The suite lives in `submodules/repo-mgmt-scripts/`, with symlinks in
+`scripts/`. After a fresh clone:
 
-2. **Test before committing** - Never commit changes without testing them first
+```bash
+git submodule update --init
+```
 
-3. **Wait for user approval** - Only commit when explicitly asked
+The symlinks (created by `submodules/repo-mgmt-scripts/install scripts/`)
+point into the submodule's `src/`. The only project-local files in
+`scripts/` are:
 
-## Branch Naming Convention
+- `project_settings.sh` — per-project configuration (see below)
+- `run-tests.sh` — the test command referenced by the settings
+- `git-rename-tag.sh` — tag utility, not part of the lifecycle
 
-**Format:** `type/N-short-desc`
+### `scripts/project_settings.sh`
 
-**Standard types:**
-- `feature` - New functionality
-- `fix` - Bug fixes
-- `docs` - Documentation changes
-- `refactor` - Code refactoring
-- `test` - Test improvements
-- `chore` - Maintenance tasks
+```sh
+ROOT_PACKAGE_NAME="src/rag_mcp"   # src-layout: version file path, not just package name
+TWINE_UPLOAD_ENABLED="0"
+ISSUE_BRANCH_TEMPLATE="dev/{issue}-{slug}"
+ISSUE_BRANCH_BASE="main"
+ISSUE_BRANCH_TEST_COMMAND="scripts/run-tests.sh"
+ISSUE_BRANCH_CHANGELOG="CHANGELOG.md"
+```
+
+## Branch Naming
+
+**Format:** `dev/<issue-number>-<short-slug>`
+
+The branch name does not carry the change type — the type
+(`feature|fix|docs|refactor|test|chore`) is an argument to `create` and
+determines the version bump level. The color moment is the issue number,
+not the branch prefix.
 
 **Examples:**
-- `feature/42-add-image-downloading`
-- `fix/17-fix-toc-parsing`
-- `docs/8-update-readme`
+- `dev/1-watch-mode`
+- `dev/17-fix-toc-parsing`
 
 ## Version Management
 
-Version is stored in `src/rag_mcp/__init__.py` as `__version__`.
-`pyproject.toml` does not contain a hardcoded version — it declares
-`dynamic = ["version"]` with `version = { attr = "rag_mcp.__version__" }`
-and reads the value from `src/rag_mcp/__init__.py` at build time.
-All version bumps below edit `src/rag_mcp/__init__.py`.
+Version truth lives in **`src/rag_mcp/__about__.py`** as `__version__`.
+`pyproject.toml` contains no hardcoded version — it declares
+`dynamic = ["version"]` with `version = { attr = "rag_mcp.__about__.__version__" }`
+and reads the value at build time. `src/rag_mcp/__init__.py` re-exports
+`__version__` from `__about__.py` so `rag_mcp.__version__` keeps working.
+The workflow tooling reads and writes the version via stdlib `ast`
+(`read_about_version.py` / `write_about_version.py`), without importing
+the package. **Never bump the version in `pyproject.toml`.**
 
 **Development versions:**
-- Format: `x.y.z.devN+issue-N-short-desc` (PEP 440 compliant)
-- Example: `0.2.1` -> `0.3.0.dev1+issue-42-add-image-downloading`
-
-**Version bumping rules:**
-- **Fix branches**: Bump patch version (0.2.1 -> 0.2.2.dev1+...)
-- **Feature branches**: Bump minor version (0.2.1 -> 0.3.0.dev1+...)
-- **Other types**: Bump patch version (0.2.1 -> 0.2.2.dev1+...)
-- **Breaking changes**: Bump major version (0.2.1 -> 1.0.0.dev1+...)
+- Format: `X.Y.(Z+B).dev1+issue-N-short-slug` (PEP 440)
+- Bump level `B` comes from the branch type: `feature` → minor, others → patch
+- Example: on `main` at `2.1.0`, `create feature 1 watch-mode` writes
+  `2.2.0.dev1+issue-1-watch-mode` to `src/rag_mcp/__about__.py` and commits it
 
 **Release versions:**
-- Remove dev suffix when merging to main
-- Example: `0.3.0.dev1+issue-42-add-image-downloading` -> `0.3.0`
+- `finish` strips the dev suffix back to the reserved core version
+- Example: `2.2.0.dev1+issue-1-watch-mode` releases as `2.2.0`
 
-## Workflow
-
-### Creating an Issue Branch
-
-1. Create branch from main:
-   ```bash
-   git checkout main
-   git pull origin main
-   git checkout -b type/N-short-desc
-   ```
-
-2. Bump version in `src/rag_mcp/__init__.py`:
-   ```bash
-   # For a feature (minor bump)
-   # Change: __version__ = "0.2.1"
-   # To:     __version__ = "0.3.0.dev1+issue-42-add-image-downloading"
-   ```
-
-3. Commit version bump:
-   ```bash
-   git add src/rag_mcp/__init__.py
-   git commit -m "Bump version to 0.3.0.dev1+issue-42-add-image-downloading"
-   ```
-
-4. Start work on the issue
-
-### Working on the Branch
-
-**Regular rebasing:**
-```bash
-git fetch origin
-git rebase origin/main
-```
-
-**If main has moved forward:**
-- Rebase onto main first
-- Then update version if needed (based on new main version)
-- Example: If main is now 0.3.0, update to 0.4.0.dev1+issue-42-...
-
-**Adjusting version mid-work:**
-- If you realize the change is breaking: bump major version
-- If you realize it's smaller than expected: adjust accordingly
-- Just update `src/rag_mcp/__init__.py` and commit the change
-
-### Merging Back to Main
-
-1. Rebase onto main:
-   ```bash
-   git fetch origin
-   git rebase origin/main
-   ```
-
-2. Update version (remove dev suffix):
-   ```bash
-   # Change: __version__ = "0.3.0.dev1+issue-42-add-image-downloading"
-   # To:     __version__ = "0.3.0"
-   ```
-
-3. Commit version update:
-   ```bash
-   git add src/rag_mcp/__init__.py
-   git commit -m "Release version 0.3.0"
-   ```
-
-4. Merge to main:
-   ```bash
-   git checkout main
-   git merge --no-ff type/N-short-desc
-   ```
-
-5. Use merge commit message derived from branch name:
-   ```
-   Add image downloading support (closes #42)
-   ```
-
-6. Create annotated tag for the release:
-   ```bash
-   git tag -a v0.3.0 -m "version 0.3.0"
-   ```
-
-## Helper Script
-
-A helper script `scripts/issue-branch.sh` automates this workflow.
-
-**Features:**
-- Creates branches with proper naming
-- Bumps versions automatically
-- Creates annotated tags on merge (format: `vX.Y.Z`)
-- Shows branch status, version info, and next steps
-- Does NOT push to remote (user must push manually)
-
-**Usage:**
-```bash
-# Create a new issue branch
-./scripts/issue-branch.sh create <type> <issue-number> <short-description>
-
-# Resume work on an existing branch (after it was merged)
-./scripts/issue-branch.sh resume <type> <issue-number> <short-description>
-
-# Adjust version mid-work
-./scripts/issue-branch.sh bump-version --major  # Bump to major version
-./scripts/issue-branch.sh bump-version --minor  # Bump to minor version
-./scripts/issue-branch.sh bump-version --patch  # Bump to patch version
-
-# Finish and merge back to main
-./scripts/issue-branch.sh finish
-
-# Cut a release directly from main (no branch or issue)
-./scripts/issue-branch.sh release [--major|--minor|--patch] [--no-bump]
-
-# Check current issue/branch status
-./scripts/issue-branch.sh status
-```
-
-**Examples:**
-```bash
-# Create feature branch for issue #42
-./scripts/issue-branch.sh create feature 42 add-image-downloading
-
-# Create fix branch for issue #17
-./scripts/issue-branch.sh create fix 17 fix-toc-parsing
-
-# Resume work on merged branch (issue reopened)
-./scripts/issue-branch.sh resume fix 16 paren-escaping
-
-# Realize mid-work it's a breaking change
-./scripts/issue-branch.sh bump-version --major
-
-# Check status mid-work
-./scripts/issue-branch.sh status
-
-# Finish and merge
-./scripts/issue-branch.sh finish
-
-# Cut a patch release from main
-./scripts/issue-branch.sh release
-
-# Cut a minor release from main
-./scripts/issue-branch.sh release --minor
-
-# Release at current version without bumping (e.g., first release)
-./scripts/issue-branch.sh release --no-bump
-```
-
-### `release` Subcommand
-
-For cutting a release without a branch or GitHub issue.
+## Lifecycle
 
 ```bash
-./scripts/issue-branch.sh release [--major|--minor|--patch] [--no-bump]
+scripts/issue-branch create <type> <issue-number> <short-slug>  # feature|fix|docs|refactor|test|chore
+scripts/issue-branch resume <type> <issue-number> <short-slug>
+scripts/issue-branch status
+scripts/issue-branch bump-version --major|--minor|--patch
+scripts/issue-branch finish [--skip-tests|--skip-changelog]
+scripts/issue-branch release [--skip-tests|--skip-changelog]
 ```
 
-- Use when the changes are already on `main` and you just need to publish a release (e.g., docs-only updates, small fixes committed directly, or manual release cadence).
-- No branch is created and no GitHub issue is required.
-- **Preconditions** (enforced by the script):
-  - Must be on `main`
-  - Working tree must be clean (no uncommitted changes)
-  - Tests must pass (`scripts/run-tests.sh` is invoked by `finish`/`release`)
-  - Changelog must have content to promote (unreleased section is non-empty)
-- **What it does:**
-  - Promotes the changelog (moves unreleased notes into a new versioned section)
-  - Bumps `__version__` in `src/rag_mcp/__init__.py`
-  - Commits the changelog and version bump
-  - Creates an annotated tag `vX.Y.Z`
-- **Bump level:** Default is `patch` (e.g., `0.1.0` -> `0.1.1`). Pass `--minor` or `--major` to override; `--patch` is explicit patch.
-- **`--no-bump`:** Releases at the current version without bumping. Use for first releases or when the version is already correct.
+Agents may create and switch *local* branches only. Merge, push, pull, and
+fetch are the user's — in practice by directing `scripts/issue-branch
+finish`, which performs the merge itself. Branch from a current `main`; one
+branch per issue, never batch unrelated issues onto one branch. Delete the
+branch (local and origin) after merge — `scripts/deletebranch` does both in
+one pass.
 
-## Edge Cases
+### `create`
 
-**Multiple dev versions:**
-- If you need to create a new dev version on the same branch
-- Increment `.devN` (e.g., `.dev1` -> `.dev2`)
-- Rare, but possible if you reset and restart work
+Creates the branch from `main` (guards: on base branch, clean tree incl.
+untracked files), then writes the dev version to `__about__.py` and commits
+it. Refuses an existing branch.
 
-**Version conflicts:**
-- If main has moved forward significantly, rebase first
-- Then update version to be higher than new main version
-- Example: main is 0.4.0, your branch is 0.3.0.dev1 -> update to 0.5.0.dev1
+### `finish`
 
-**Abandoned branches:**
-- If you abandon a branch, just delete it
-- No need to clean up version numbers
-- Next branch will use appropriate version based on current main
+The normal end-of-branch step. Runs the test command, rebases onto `main`
+(`rebase.autostash=false`, so conflicts fail loudly), promotes the
+CHANGELOG `[Unreleased]` section to a versioned heading, strips the dev
+suffix, commits `release X.Y.Z`, checks out `main`, merges `--no-ff` with a
+`(closes #N)` merge message, and tags `vX.Y.Z`. There is no separate manual
+merge step and it takes no bump level — the dev version written by `create`
+already encodes the intended bump.
 
-## Best Practices
+If killed partway (after merging to `main`), re-running `finish` on `main`
+is a recovery path: it completes the missing version normalization/tag
+idempotently, keyed on the merge commit's latest `(closes #N)` message.
 
-- Always work on a dedicated branch for issues
-- Commit version bump separately before starting work
-- Rebase regularly to stay up-to-date with main
-- Use the helper script to avoid manual errors
-- Keep branch names short but descriptive
-- Use lowercase with hyphens for branch names
-- Include issue number in branch name for traceability
+### `status`
+
+Read-only. Reports the branch, issue number, current version, release
+version, test command, changelog readiness, and tree state. Run it before
+choosing a release command.
+
+### `bump-version`
+
+Adjusts the version on the issue branch (`--major` for an unexpected
+breaking change), re-writing the dev version at the new level. A valve, not
+a release step.
+
+### `release`
+
+For cutting a release directly on `main` without a branch or issue
+(e.g., docs-only updates and small fixes committed straight to `main`).
+
+- **Requires being on `main`** with a clean tree and passing tests.
+- **Never mutates the version.** It reads the version, promotes
+  `[Unreleased]`, commits, and tags.
+- Refuses a dev/local-suffixed version (`use finish` or `bump-version`) and
+  refuses an already-tagged version instead of creating a duplicate
+  changelog heading.
+
+## Version-Mutation Rules
+
+- Only `create` and `finish` mutate versions on the normal path
+  (start-bump + dev suffix; strip-to-core on finish). `resume` and
+  `bump-version` are valves — they only restore or re-level a version the
+  normal path would have produced, never invent one.
+- The helper **never pushes** and **never creates a GitHub release**.
+
+## Releases
+
+Manual, once the helper has committed and tagged:
+
+1. Push the branch and tags: `git push origin main --tags`
+2. Create the GitHub release referencing the tag.
+
+There is no PyPI publish step; the README installs from the git URL via
+pipx.
 
 ## Utility Scripts
-
-### `scripts/issue-branch.sh`
-
-Manages issue branch lifecycle: creation, version bumping, and merge.
-
-```bash
-# Create issue branch
-./scripts/issue-branch.sh create <type> <issue-number> <short-desc>
-
-# Resume work on existing branch (after it was merged)
-./scripts/issue-branch.sh resume <type> <issue-number> <short-desc>
-
-# Check branch status
-./scripts/issue-branch.sh status
-
-# Adjust version mid-work
-./scripts/issue-branch.sh bump-version --major
-
-# Finish and merge to main
-./scripts/issue-branch.sh finish
-
-# Cut a release from main without a branch or issue
-./scripts/issue-branch.sh release [--major|--minor|--patch]
-```
-
-`finish` invokes `scripts/run-tests.sh` to verify tests pass before merging.
 
 ### `scripts/git-rename-tag.sh`
 
 Renames a git tag while preserving annotations.
 
 ```bash
-# Rename tag locally
 ./scripts/git-rename-tag.sh <old-tag> <new-tag>
-
-# Rename and push to remote
 ./scripts/git-rename-tag.sh <old-tag> <new-tag> --push
-
-# Rename with edited annotation
 ./scripts/git-rename-tag.sh <old-tag> <new-tag> --edit
 ```
 
-Preserves annotated tag messages automatically. Use `--edit` to modify the annotation in your editor before creating the new tag.
-
 ### `scripts/run-tests.sh`
 
-Runs pytest with automatic virtualenv initialization.
+Runs pytest with automatic virtualenv initialization
+(`~/.virtualenvs/rag-mcp`). Used internally by `finish` and `release` as
+the test gate. Hard-fails if the virtualenv doesn't exist. The
+`--skip-tests`/`--skip-changelog` flags on `finish`/`release` exist for
+direct user invocation — agents must never pass them.
 
-```bash
-# Run all tests
-./scripts/run-tests.sh
+## History
 
-# Run with verbose output
-./scripts/run-tests.sh -v
-
-# Run specific test file
-./scripts/run-tests.sh tests/test_server.py
-
-# Run tests matching pattern
-./scripts/run-tests.sh -k test_query
-```
-
-Sources `~/.virtualenvs/rag-mcp` and invokes `pytest` with argument passthrough. Used internally by `finish` and `release` as the test gate. Hard-fails if the virtualenv doesn't exist (use `--skip-tests` to bypass).
+Adopted from the forgejo-to-github project (plans in
+`submodules/repo-mgmt-scripts` upstream). Supersedes the former bespoke
+`scripts/issue-branch.sh`, which is removed by this change.
