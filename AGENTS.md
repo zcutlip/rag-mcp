@@ -76,15 +76,18 @@ docs/archive/         # Completed/superseded specs, named YYYY-MM-DD-<topic>-spe
 
 ## Development Commands
 
+Agents run from the project root — invoke scripts in plain form
+(e.g. `./scripts/run-tests.sh -q`), never as `cd <path> && …` compound
+wrappers, which cannot be pre-approved and prompt every time.
+
 ```bash
 # Setup
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 
-# Run tests
-pytest
-
+# Run tests (activates ~/.virtualenvs/rag-mcp; never run pytest directly)
+./scripts/run-tests.sh [pytest args]       # e.g. ./scripts/run-tests.sh -q
 # Lint/format (pre-commit hooks: flake8, autopep8, isort, pyupgrade, shellcheck)
 pre-commit run --all-files
 
@@ -196,12 +199,13 @@ Global TOML keys: `[embeddings] host`/`model`. Project TOML keys: `[embeddings]`
 - ChromaDB uses `tmp_path` for filesystem isolation (no shared state between tests)
 - No test interdependencies
 
-**Running tests:**
+**Running tests:** always through the script, never `pytest` directly:
 ```bash
-pytest                    # run all tests
-pytest -v                 # verbose output
-pytest tests/test_server.py  # run specific module
+./scripts/run-tests.sh                       # all tests
+./scripts/run-tests.sh -v                    # verbose output
+./scripts/run-tests.sh tests/test_server.py  # specific module
 ```
+Agents delegate test runs to the test subagent, passing the command in plain form.
 
 **Coverage expectations:** Tests enforce contracts around:
 - Input validation (mismatched list lengths raise `ValueError`)
@@ -226,6 +230,7 @@ pytest tests/test_server.py  # run specific module
 
 - **Plan approval:** Code changes begin only after the user reviews/approves the plan. Developing a plan is not approval.
 - **TDD order:** Write tests first and establish RED, then implement to GREEN. Tests are the locked contract — never change tests to make an implementation pass.
+- **Phase transitions are user-granted:** RED→GREEN and every other phase transition (including RED re-entries) happen only on the user's explicit approval. Passing tests, complete artifacts, or verification establish exit-eligibility only — never the transition. The agent does not self-certify phases; until the user approves the move, the current phase stands however complete its work looks.
 - **RED contract gaps:** If RED exposes a legitimate contract gap, stop and surface it. With user approval, amend the test, then stop again for user approval of the amended test before resuming GREEN.
 - **Stop gates:** User-held review checkpoints. After each substantive stage, stop for user review/approval. Final review and commit are performed by the user.
 - **No commits:** Unless you are the @commit agent, never commit, push, or stage-then-commit. Automated checks and delegate reports do not constitute user approval.
