@@ -529,6 +529,18 @@ def test_watch_env_invalid_bool_raises(monkeypatch, tmp_path):
         config.load_config(environ={"RAG_MCP_INGEST_WATCH": "yes"})
 
 
+def test_watch_env_empty_string_raises(monkeypatch, tmp_path):
+    """An empty-string RAG_MCP_INGEST_WATCH is invalid, not unset (amendment 3)."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    _write_project_config(tmp_path, f'[chroma]\npersist_dir = "{db}"\n')
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ValueError, match="RAG_MCP_INGEST_WATCH"):
+        config.load_config(environ={"RAG_MCP_INGEST_WATCH": ""})
+
+
 def test_watch_interval_env_invalid_values_raise(monkeypatch, tmp_path):
     """RAG_MCP_INGEST_WATCH_INTERVAL must parse to a positive integer."""
     _no_default_config(monkeypatch, tmp_path)
@@ -562,3 +574,18 @@ def test_project_watch_interval_invalid_values_raise(monkeypatch, tmp_path):
         _write_project_config(tmp_path, bad_toml)
         with pytest.raises(ValueError, match="ingest.watch_interval"):
             config.load_config(environ={})
+
+
+def test_project_watch_non_bool_raises(tmp_path, monkeypatch):
+    """[ingest] watch must be a bool — TOML strings like "yes" reject with ValueError."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    monkeypatch.chdir(tmp_path)
+    _write_project_config(
+        tmp_path,
+        f'[chroma]\npersist_dir = "{db}"\n[ingest]\ndirectory = "docs"\nwatch = "yes"\n',
+    )
+
+    with pytest.raises(ValueError, match="ingest.watch"):
+        config.load_config(environ={})
