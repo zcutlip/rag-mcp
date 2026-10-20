@@ -8,30 +8,38 @@ from rag_mcp import server
 
 
 def test_watch_loop_calls_sync_each_tick():
-    """Each interval tick invokes sync once; the loop exits cleanly after cancel."""
+    """Each completed sleep invokes sync once; cancel mid-sleep exits before any sync.
+
+    Amended at the prompt-exit gate (amendment 3): a cancel set during a sleep
+    suppresses that tick's sync instead of firing it.
+    """
     sync = MagicMock()
     cancel = threading.Event()
     ticks = []
 
     def fake_sleep(_interval):
         ticks.append(_interval)
-        if len(ticks) >= 2:
+        if len(ticks) >= 3:
             cancel.set()
 
     server._watch_loop(sync, 30, fake_sleep, cancel)
     assert sync.call_count == 2
-    assert ticks == [30, 30]
+    assert ticks == [30, 30, 30]
 
 
 def test_watch_loop_failed_tick_logs_and_continues(capsys):
-    """A failed tick is logged to stderr and the loop keeps ticking."""
+    """A failed tick is logged to stderr and the loop keeps ticking.
+
+    Amended at the prompt-exit gate (amendment 3): cancel threshold shifted so
+    the cancel lands mid-sleep after the failed tick's sync.
+    """
     sync = MagicMock(side_effect=[OSError("disk vanished"), None, None])
     cancel = threading.Event()
     ticks = []
 
     def fake_sleep(_interval):
         ticks.append(_interval)
-        if len(ticks) >= 3:
+        if len(ticks) >= 4:
             cancel.set()
 
     server._watch_loop(sync, 30, fake_sleep, cancel)
