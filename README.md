@@ -97,6 +97,10 @@ directory = "./docs"
 collection = "default"
 # Ordered include/exclude patterns (optional). Files start included; last match wins; '!' negates.
 # patterns = ["!private/**", "private/keep/**"]  # exclude private/** but re-include private/keep/**
+# Watch mode (optional, on by default): when [ingest] directory is set, the server
+# re-syncs it every ingest_watch_interval seconds until shutdown.
+# watch = false          # set false to disable the background watcher
+# watch_interval = 30    # seconds between re-syncs
 ```
 
 Relative paths in the project file resolve against the directory containing
@@ -116,6 +120,8 @@ must be set in `.rag-mcp.toml` or via `RAG_MCP_CHROMA_PERSIST_DIR`.
 | `RAG_MCP_CHROMA_PERSIST_DIR` | required | ChromaDB persistence directory |
 | `RAG_MCP_INGEST_DIR` | unset (skip startup sync) | Directory of markdown files to auto-sync on server startup |
 | `RAG_MCP_INGEST_COLLECTION` | `default` | Collection to sync `RAG_MCP_INGEST_DIR` into |
+| `RAG_MCP_INGEST_WATCH` | `true` | Enable (`true`) or disable (`false`) continuous background re-sync; strict bool, only `true`/`false` accepted |
+| `RAG_MCP_INGEST_WATCH_INTERVAL` | `30` | Seconds between background re-syncs; positive integer |
 
 ## Initialize a starter config
 
@@ -330,14 +336,14 @@ Delete a collection and all its documents.
 
 ### `sync`
 
-Re-sync the configured corpus into its collection. Reads `[ingest] directory` and `[ingest] collection` from `.rag-mcp.toml` (the single source of truth for the corpus). Safe to call repeatedly: new and changed files are chunked and (re-)embedded, unchanged files are skipped, and files removed from disk have their chunks removed from the collection. Setting `RAG_MCP_INGEST_DIR` (or `[ingest] directory`) also runs this automatically on server startup. No parameters.
+Re-sync the configured corpus into its collection. Reads `[ingest] directory` and `[ingest] collection` from `.rag-mcp.toml` (the single source of truth for the corpus). Safe to call repeatedly: new and changed files are chunked and (re-)embedded, unchanged files are skipped, and files removed from disk have their chunks removed from the collection. Setting `RAG_MCP_INGEST_DIR` (or `[ingest] directory`) also runs this automatically on server startup, and — unless `ingest.watch = false` / `RAG_MCP_INGEST_WATCH=false` — keeps it re-syncing in the background every `ingest.watch_interval` seconds (default 30) until the server shuts down. No parameters.
 
 **Parameters:** None — corpus is defined in config.
 
 ## Development
 
 ```bash
-pytest            # run tests
+./scripts/run-tests.sh            # run tests (never pytest directly)
 ```
 
 ## FAQ

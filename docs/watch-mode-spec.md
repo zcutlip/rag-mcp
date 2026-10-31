@@ -1,7 +1,7 @@
 # Ingest Watch Mode Spec
 
 Issue: #1
-Status: in progress (spec amended 2026-10-18: interval locked as configurable)
+Status: implementation complete — RED → GREEN closed, suite 144/144 green (2026-10-19); docs in progress; awaiting commit/review/release
 Branch: dev/1-watch-mode (created with `scripts/issue-branch create feature 1 watch-mode`, dev version 2.2.0.dev1+issue-1-watch-mode)
 
 ## Objective
