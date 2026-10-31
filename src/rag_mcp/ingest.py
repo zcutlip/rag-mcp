@@ -184,7 +184,9 @@ def sync_directory(
 
         if not stripped_text.strip():
             ids_to_delete.extend(c["id"] for c in prior_chunks)
-            counts["updated" if prior_chunks else "added"] += 1
+            # A stably-empty file stores nothing, so there is nothing to add:
+            # counting it "added" would repeat forever and never converge.
+            counts["updated" if prior_chunks else "unchanged"] += 1
             continue
 
         # Serialize frontmatter for Chroma
@@ -194,12 +196,14 @@ def sync_directory(
         for i, chunk in enumerate(new_chunks):
             staged_ids.append(f"{source}::{i}")
             staged_docs.append(chunk)
-            # Base metadata + frontmatter
+            # Frontmatter first: the reserved sync keys must win over
+            # same-named frontmatter fields (e.g. an Obsidian `source:` URL
+            # must not overwrite the file-path source the diff looks up).
             chunk_metadata = {
+                **serialized_frontmatter,
                 "source": source,
                 "content_hash": digest,
                 "chunk_index": i,
-                **serialized_frontmatter,
             }
             staged_metadatas.append(chunk_metadata)
 
