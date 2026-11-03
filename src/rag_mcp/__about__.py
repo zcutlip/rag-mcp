@@ -6,4 +6,4 @@ Single source of version truth. Read by:
 - repo-mgmt-scripts workflow tooling (stdlib ast, no import)
 """
 
-__version__ = "2.2.0"
+__version__ = "2.3.0.dev1+issue-6-sync-logging"
