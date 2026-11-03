@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Background ingest watcher: with `[ingest] directory` set, the server
+  re-syncs in the background every `ingest.watch_interval` seconds (default
+  30; `ingest.watch = false` disables). Unchanged files skip re-embedding via
+  content-hash comparison; failed ticks log to stderr and retry next tick.
+  (closes #1)
+
 ### Changed
 
 - Adopted the shared repo-mgmt-scripts issue/branch/tag/release workflow as a
@@ -15,6 +23,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   argument and sets the bump level). Version truth moved from
   `src/rag_mcp/__init__.py` to `src/rag_mcp/__about__.py` (`__init__.py`
   re-exports `__version__`).
+
+### Fixed
+
+- Frontmatter fields can no longer displace reserved sync keys: `source`,
+  `content_hash`, and `chunk_index` are set after the frontmatter spread, so
+  an Obsidian-style `source:` URL no longer mislabels chunks, breaks
+  incremental convergence, and leaves orphan rows the diff then purges every
+  pass.
+- Contentless files (empty after frontmatter strip) store nothing and count
+  as `unchanged` instead of `added`, so repeated passes settle instead of
+  re-adding forever.
 
 ## [2.1.0] - 2026-09-12
 
