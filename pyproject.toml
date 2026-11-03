@@ -15,7 +15,7 @@ keywords = ["mcp", "rag", "retrieval-augmented-generation", "ollama", "chromadb"
 dependencies = [
     "mcp>=2,<3",
     "ollama>=0.4",
-    "chromadb>=1.5",
+    "chromadb>=1.5.4",
     "platformdirs>=4",
     "pyyaml>=6",
 ]

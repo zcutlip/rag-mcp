@@ -1,0 +1,14 @@
+{
+    "$schema": "https://opencode.ai/config.json",
+    // Delegated test route pre-approval: agents.test runs the test gate
+    // without prompting; build's direct route stays at the global ask.
+    // Inert for contributors who don't have the test agent.
+    "agents": {
+        "test": {
+            "permissions": [
+                { "action": "shell", "resource": "./scripts/run-tests.sh *", "effect": "allow" },
+                { "action": "shell", "resource": "./scripts/run-tests.sh", "effect": "allow" }
+            ]
+        }
+    }
+}

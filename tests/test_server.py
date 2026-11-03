@@ -290,6 +290,68 @@ def test_main_auto_ingest_forwards_host_model(
     assert kwargs["embeddings_model"] == "nomic-embed-text"
 
 
+@patch("rag_mcp.server.threading.Thread")
+@patch("rag_mcp.server.ingest.sync_directory")
+@patch("rag_mcp.server.mcp.run")
+@patch("rag_mcp.server.VectorStore")
+@patch("rag_mcp.server.get_config")
+def test_main_starts_watcher_thread(
+    mock_get_config, mock_vectorstore, mock_run, mock_sync, mock_thread
+):
+    """main() starts one daemon watcher thread after auto-ingest when watch is on."""
+    cfg = _test_config()
+    cfg.ingest_watch = True
+    cfg.ingest_watch_interval = 30
+    mock_get_config.return_value = cfg
+
+    from rag_mcp.server import main
+
+    main([])
+    mock_thread.assert_called_once()
+    assert mock_thread.call_args.kwargs["daemon"] is True
+    mock_thread.return_value.start.assert_called_once()
+
+
+@patch("rag_mcp.server.threading.Thread")
+@patch("rag_mcp.server.ingest.sync_directory")
+@patch("rag_mcp.server.mcp.run")
+@patch("rag_mcp.server.VectorStore")
+@patch("rag_mcp.server.get_config")
+def test_main_watch_disabled_starts_no_thread(
+    mock_get_config, mock_vectorstore, mock_run, mock_sync, mock_thread
+):
+    """main() starts no watcher when ingest.watch is False."""
+    cfg = _test_config()
+    cfg.ingest_watch = False
+    cfg.ingest_watch_interval = 30
+    mock_get_config.return_value = cfg
+
+    from rag_mcp.server import main
+
+    main([])
+    mock_thread.assert_not_called()
+
+
+@patch("rag_mcp.server.threading.Thread")
+@patch("rag_mcp.server.ingest.sync_directory")
+@patch("rag_mcp.server.mcp.run")
+@patch("rag_mcp.server.VectorStore")
+@patch("rag_mcp.server.get_config")
+def test_main_without_ingest_dir_starts_no_thread(
+    mock_get_config, mock_vectorstore, mock_run, mock_sync, mock_thread
+):
+    """main() starts no watcher when no ingest directory is configured."""
+    cfg = _test_config()
+    cfg.ingest_dir = None
+    cfg.ingest_watch = True
+    mock_get_config.return_value = cfg
+
+    from rag_mcp.server import main
+
+    main([])
+    mock_thread.assert_not_called()
+
+
 @patch("rag_mcp.server.get_config")
 @patch("rag_mcp.server.mcp.run")
 def test_main_help_exits_zero_without_starting(mock_run, mock_get_config, capsys):

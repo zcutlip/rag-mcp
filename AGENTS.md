@@ -12,11 +12,11 @@ Client (MCP) → server.py (MCPServer) → get_embeddings() → Ollama API
 ```
 
 **Module responsibilities:**
-- `config.py`: `Config` frozen dataclass plus `load_config()`/`get_config()`. Loads a global `config.toml` (only `[embeddings]`) and a project `.rag-mcp.toml` (discovered by cwd walk-up) with `RAG_MCP_*` env overrides. Resolves relative paths in the project file against the project root and constrains them to it. Validates eagerly (fail fast).
-- `server.py`: MCPServer entry point, defines 5 tools (add_documents, query_documents, list_collections, delete_collection, sync) plus `--help`/`readme` CLI commands; module-level `mcp` plus a lazy `store` built in `main()` and accessed via `get_store()`
+- `config.py`: `Config` frozen dataclass plus `load_config()`/`get_config()`. Loads a global `config.toml` (only `[embeddings]`) and a project `.rag-mcp.toml` (discovered by cwd walk-up) with `RAG_MCP_*` env overrides. Resolves relative paths in the project file against the project root and constrains them to it. Validates eagerly (fail fast), including strict bool/int validation for `[ingest] watch`/`watch_interval`.
+- `server.py`: MCPServer entry point, defines 5 tools (add_documents, query_documents, list_collections, delete_collection, sync) plus `--help`/`readme` CLI commands; module-level `mcp` plus a lazy `store` built in `main()` and accessed via `get_store()`. `main()` also starts the background ingest watcher after the startup auto-ingest (see `docs/watch-mode-spec.md` for the pinned contract)
 - `embeddings.py`: Ollama embedding client, `get_embeddings(texts, host, model)` with compatibility shim for SDK >=0.4 (host/model passed in, no `os.environ` access)
 - `store.py`: ChromaDB wrapper class `VectorStore` with add/query/upsert/get_all_metadata/delete_ids/list_collections/delete_collection operations
-- `ingest.py`: directory-to-vector-store sync (`should_include`, `iter_markdown_files`, `chunk_text`, `file_hash`, `sync_directory` with `patterns` filtering, `parse_frontmatter`, `strip_frontmatter`). Parses YAML frontmatter from markdown files and stores metadata (title, url, tags, created, updated). `should_include` is the pure `fnmatch` matcher (ordered patterns, last-match-wins, `!` negates, case-insensitive). The one module that composes the other two — takes a `VectorStore` instance plus `embeddings_host`/`embeddings_model` as parameters (never globals) so it stays unit-testable
+- `ingest.py`: directory-to-vector-store sync (`should_include`, `iter_markdown_files`, `chunk_text`, `file_hash`, `sync_directory` with `patterns` filtering, `parse_frontmatter`, `strip_frontmatter`). Parses YAML frontmatter from markdown files and stores metadata (title, url, tags, created, updated). Reserved sync keys (`source`, `content_hash`, `chunk_index`) are set after the frontmatter spread so same-named frontmatter fields (e.g. Obsidian `source:` URLs) can never displace them. Contentless files (empty after frontmatter strip) store nothing and count as `unchanged`, so the sync converges. `should_include` is the pure `fnmatch` matcher (ordered patterns, last-match-wins, `!` negates, case-insensitive). The one module that composes the other two — takes a `VectorStore` instance plus `embeddings_host`/`embeddings_model` as parameters (never globals) so it stays unit-testable
 - `_config_cli.py`: CLI for `rag-mcp-config init` utility, writes starter global and project config files
 - `__about__.py`: Package version single source of truth (`__version__`)
 - `__init__.py`: Package marker, re-exports `__version__` from `__about__.py`
@@ -76,15 +76,18 @@ docs/archive/         # Completed/superseded specs, named YYYY-MM-DD-<topic>-spe
 
 ## Development Commands
 
+Agents run from the project root — invoke scripts in plain form
+(e.g. `./scripts/run-tests.sh -q`), never as `cd <path> && …` compound
+wrappers, which cannot be pre-approved and prompt every time.
+
 ```bash
 # Setup
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 
-# Run tests
-pytest
-
+# Run tests (activates ~/.virtualenvs/rag-mcp; never run pytest directly)
+./scripts/run-tests.sh [pytest args]       # e.g. ./scripts/run-tests.sh -q
 # Lint/format (pre-commit hooks: flake8, autopep8, isort, pyupgrade, shellcheck)
 pre-commit run --all-files
 
@@ -109,8 +112,10 @@ Environment variables (all optional overrides):
 - `RAG_MCP_CHROMA_PERSIST_DIR` (required) — ChromaDB persistence directory; must be set in `.rag-mcp.toml` or this env var
 - `RAG_MCP_INGEST_DIR` (unset by default) — directory auto-ingested at startup via `sync_directory`
 - `RAG_MCP_INGEST_COLLECTION` (default: `default`) — collection for the startup auto-ingest
+- `RAG_MCP_INGEST_WATCH` (default: `true`) — enable/disable the background re-sync watcher (`true`/`false` only; anything else raises `ValueError`)
+- `RAG_MCP_INGEST_WATCH_INTERVAL` (default: `30`) — seconds between background re-syncs; positive integer
 
-Global TOML keys: `[embeddings] host`/`model`. Project TOML keys: `[embeddings]` (optional override), `[chroma] persist_dir`, `[ingest] directory`/`collection`/`patterns` (patterns is project-local only, no env var). Relative paths in the project file resolve against the project root and must stay within it.
+Global TOML keys: `[embeddings] host`/`model`. Project TOML keys: `[embeddings]` (optional override), `[chroma] persist_dir`, `[ingest] directory`/`collection`/`watch`/`watch_interval`/`patterns` (watch, watch_interval, patterns are project-local only, no env var for patterns). Relative paths in the project file resolve against the project root and must stay within it.
 
 **Error handling:**
 - Validation errors raise `ValueError` with descriptive messages (e.g., mismatched list lengths)
@@ -178,17 +183,18 @@ Global TOML keys: `[embeddings] host`/`model`. Project TOML keys: `[embeddings]`
 
 **Framework:** pytest
 
-**Test count:** 124 tests total
-- `test_config.py`: 31 tests (defaults, global+project+env precedence, cwd walk-up discovery, relative-path resolution, subpath constraint, `~` expansion, missing/invalid config files, invalid host/model, missing ingest dir, `get_config()` caching, ingest patterns)
+**Test count:** 144 tests total
+- `test_config.py`: 39 tests (defaults, global+project+env precedence, cwd walk-up discovery, relative-path resolution, subpath constraint, `~` expansion, missing/invalid config files, invalid host/model, missing ingest dir, `get_config()` caching, ingest patterns, ingest watch/watch_interval validation)
 - `test_config_cli.py`: 8 tests for `rag-mcp-config init` utility (writes both files, skips existing, mkdir parents, cwd-only project, help/unknown verb)
 - `test_embeddings.py`: 2 tests (empty input, success passes host/model)
 - `test_frontmatter.py`: 7 tests (YAML frontmatter parsing, stripping, invalid YAML handling)
 - `test_ingest_frontmatter.py`: 12 tests (frontmatter metadata storage, migration, incremental sync with frontmatter)
 - `test_store.py`: 5 tests (add+query, ID generation, validation, lifecycle, empty collection)
-- `test_server.py`: 29 tests (add_documents, query_documents happy+empty, list_collections, delete_collection, empty documents, validation, main config error guidance, main auto-ingest forwards host/model, main --help/readme/unknown-command behavior, server metadata, rag://readme resource, tool descriptions, sync patterns wiring)
+- `test_server.py`: 33 tests (add_documents, query_documents happy+empty, list_collections, delete_collection, empty documents, validation, main config error guidance, main auto-ingest forwards host/model, main watcher start gating, main --help/readme/unknown-command behavior, server metadata, rag://readme resource, tool descriptions, sync patterns wiring)
 - `test_query_structured.py`: 8 tests (structured response format, compact mode, source deduplication, distance rounding, ranking)
 - `test_ingest.py`: 6 tests (chunking short/long text, first-time sync, noop re-sync, changed-file re-sync, deleted-file re-sync)
 - `test_ingest_patterns.py`: 15 tests for ordered patterns filtering (should_include + sync integration)
+- `test_ingest_watch.py`: 7 tests (watch loop sleep-first tick order, prompt-exit cancel semantics, failed-tick error-continue, `_make_sync_fn` argument contract, daemon `_start_watcher`, server-import safety)
 - `test_version.py`: 1 test for package version (allows .dev local versions)
 
 **Test isolation:**
@@ -196,12 +202,13 @@ Global TOML keys: `[embeddings] host`/`model`. Project TOML keys: `[embeddings]`
 - ChromaDB uses `tmp_path` for filesystem isolation (no shared state between tests)
 - No test interdependencies
 
-**Running tests:**
+**Running tests:** always through the script, never `pytest` directly:
 ```bash
-pytest                    # run all tests
-pytest -v                 # verbose output
-pytest tests/test_server.py  # run specific module
+./scripts/run-tests.sh                       # all tests
+./scripts/run-tests.sh -v                    # verbose output
+./scripts/run-tests.sh tests/test_server.py  # specific module
 ```
+Agents delegate test runs to the test subagent, passing the command in plain form.
 
 **Coverage expectations:** Tests enforce contracts around:
 - Input validation (mismatched list lengths raise `ValueError`)
@@ -226,6 +233,7 @@ pytest tests/test_server.py  # run specific module
 
 - **Plan approval:** Code changes begin only after the user reviews/approves the plan. Developing a plan is not approval.
 - **TDD order:** Write tests first and establish RED, then implement to GREEN. Tests are the locked contract — never change tests to make an implementation pass.
+- **Phase transitions are user-granted:** RED→GREEN and every other phase transition (including RED re-entries) happen only on the user's explicit approval. Passing tests, complete artifacts, or verification establish exit-eligibility only — never the transition. The agent does not self-certify phases; until the user approves the move, the current phase stands however complete its work looks.
 - **RED contract gaps:** If RED exposes a legitimate contract gap, stop and surface it. With user approval, amend the test, then stop again for user approval of the amended test before resuming GREEN.
 - **Stop gates:** User-held review checkpoints. After each substantive stage, stop for user review/approval. Final review and commit are performed by the user.
 - **No commits:** Unless you are the @commit agent, never commit, push, or stage-then-commit. Automated checks and delegate reports do not constitute user approval.

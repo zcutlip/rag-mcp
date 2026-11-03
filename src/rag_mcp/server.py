@@ -2,6 +2,8 @@
 
 import argparse
 import sys
+import threading
+import time
 from importlib.metadata import PackageNotFoundError, metadata
 from typing import Any
 
@@ -220,6 +222,56 @@ def sync() -> str:
     )
 
 
+def _make_sync_fn(store: VectorStore, config: Any):
+    """Build the per-tick sync callable for the watcher.
+
+    The returned callable invokes :func:`rag_mcp.ingest.sync_directory` with
+    the same arguments the startup auto-ingest passes.
+    """
+
+    def _sync() -> None:
+        ingest.sync_directory(
+            store,
+            config.ingest_dir,
+            collection=config.ingest_collection,
+            embeddings_host=config.embeddings_host,
+            embeddings_model=config.embeddings_model,
+            patterns=config.ingest_patterns,
+        )
+
+    return _sync
+
+
+def _watch_loop(sync, interval: int, sleep_fn, cancel: threading.Event) -> None:
+    """Poll ``sync`` every ``interval`` seconds until ``cancel`` is set.
+
+    Each tick sleeps ``interval`` seconds first, then calls ``sync`` when
+    the cancel event is not set — so the first sync lands one interval
+    after the loop starts. A failed sync (the callable raising anything)
+    is logged to stderr and the loop continues — the next sleep retries.
+    The cancel event ends the loop cleanly, including mid-sleep.
+    """
+    while not cancel.is_set():
+        sleep_fn(interval)
+        if cancel.is_set():
+            return
+        try:
+            sync()
+        except Exception as exc:  # noqa: BLE001 — any sync failure is retried
+            print(f"watch sync failed: {exc!r}", file=sys.stderr)
+
+
+def _start_watcher(sync, interval: int) -> None:
+    """Start the daemon thread running :func:`_watch_loop`."""
+    cancel = threading.Event()
+    thread = threading.Thread(
+        target=_watch_loop,
+        args=(sync, interval, time.sleep, cancel),
+        daemon=True,
+    )
+    thread.start()
+
+
 def main(argv: list[str] | None = None) -> None:
     """Run the MCP server using stdio transport."""
     global store
@@ -265,6 +317,10 @@ def main(argv: list[str] | None = None) -> None:
             embeddings_model=config.embeddings_model,
             patterns=config.ingest_patterns,
         )
+        if config.ingest_watch:
+            _start_watcher(
+                _make_sync_fn(store, config), config.ingest_watch_interval
+            )
     mcp.run()
 
 

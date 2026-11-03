@@ -149,3 +149,79 @@ def test_sync_deleted_file_resync(tmp_path):
     assert result == {"added": 0, "updated": 0, "deleted": 1, "unchanged": 0}
     meta = store.get_all_metadata("test")
     assert meta["ids"] == []
+
+
+def _sync_all(store, docs_dir):
+    with patch("rag_mcp.ingest.get_embeddings", side_effect=_fake_embeddings):
+        return sync_directory(
+            store,
+            str(docs_dir),
+            collection="test",
+            embeddings_host=EMBEDDINGS_HOST,
+            embeddings_model=EMBEDDINGS_MODEL,
+        )
+
+
+def test_sync_frontmatter_reserved_keys_do_not_overwrite_source(tmp_path):
+    """Frontmatter `source:`/`content_hash:`/`chunk_index:` must not displace sync keys.
+
+    Regression: an Obsidian-style `source:` URL used to overwrite the file-path
+    source in stored metadata, so every pass looked the file up by path, found
+    nothing, re-added it, and purged the URL-labeled rows as orphans — the
+    sync never converged.
+    """
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    (docs_dir / "note.md").write_text(
+        "---\n"
+        "title: Real Title\n"
+        "source: https://example.com/article\n"
+        "content_hash: bogus\n"
+        "chunk_index: 99\n"
+        "---\n"
+        "body text here\n"
+    )
+
+    store = VectorStore(persist_dir=str(tmp_path / "chroma"))
+    first = _sync_all(store, docs_dir)
+    assert first == {"added": 1, "updated": 0, "deleted": 0, "unchanged": 0}
+
+    meta = store.get_all_metadata("test")
+    assert meta["metadatas"][0]["source"] == "note.md"
+    assert meta["metadatas"][0]["chunk_index"] == 0
+    assert meta["metadatas"][0]["title"] == "Real Title"
+    assert meta["metadatas"][0]["content_hash"] != "bogus"
+
+    second = _sync_all(store, docs_dir)
+    assert second == {"added": 0, "updated": 0, "deleted": 0, "unchanged": 1}
+
+
+def test_sync_empty_file_converges(tmp_path):
+    """A frontmatter-only file stores nothing and settles as unchanged."""
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    (docs_dir / "empty.md").write_text('---\nsorting-spec: "order-asc: a-z"\n---\n')
+
+    store = VectorStore(persist_dir=str(tmp_path / "chroma"))
+    with patch(
+        "rag_mcp.ingest.get_embeddings", side_effect=_fake_embeddings
+    ) as mock_emb:
+        first = sync_directory(
+            store,
+            str(docs_dir),
+            collection="test",
+            embeddings_host=EMBEDDINGS_HOST,
+            embeddings_model=EMBEDDINGS_MODEL,
+        )
+        second = sync_directory(
+            store,
+            str(docs_dir),
+            collection="test",
+            embeddings_host=EMBEDDINGS_HOST,
+            embeddings_model=EMBEDDINGS_MODEL,
+        )
+
+    assert first == {"added": 0, "updated": 0, "deleted": 0, "unchanged": 1}
+    assert second == {"added": 0, "updated": 0, "deleted": 0, "unchanged": 1}
+    mock_emb.assert_not_called()
+    assert store.get_all_metadata("test")["ids"] == []
