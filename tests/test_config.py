@@ -589,3 +589,132 @@ def test_project_watch_non_bool_raises(tmp_path, monkeypatch):
 
     with pytest.raises(ValueError, match="ingest.watch"):
         config.load_config(environ={})
+
+
+def test_logging_path_defaults_to_project_root(monkeypatch, tmp_path):
+    """With a project file and no [logging] table, the path is <root>/.rag-mcp.log."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    _write_project_config(tmp_path, f'[chroma]\npersist_dir = "{db}"\n')
+    monkeypatch.chdir(tmp_path)
+
+    cfg = config.load_config(environ={})
+    assert cfg.logging_path == str((tmp_path / ".rag-mcp.log").resolve())
+
+
+def test_logging_path_relative_resolves_to_project_root(monkeypatch, tmp_path):
+    """A relative [logging] path resolves under the project root."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    _write_project_config(
+        tmp_path,
+        f'[chroma]\npersist_dir = "{db}"\n[logging]\npath = "logs/rag.log"\n',
+    )
+    monkeypatch.chdir(tmp_path)
+
+    cfg = config.load_config(environ={})
+    assert cfg.logging_path == str((tmp_path / "logs" / "rag.log").resolve())
+
+
+def test_logging_path_absolute_used_as_is(monkeypatch, tmp_path):
+    """An absolute [logging] path is accepted even outside the project root."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    dest = tmp_path / "elsewhere" / "rag.log"
+    _write_project_config(
+        tmp_path,
+        f'[chroma]\npersist_dir = "{db}"\n[logging]\npath = "{dest}"\n',
+    )
+    monkeypatch.chdir(tmp_path)
+
+    cfg = config.load_config(environ={})
+    assert cfg.logging_path == str(dest.resolve())
+
+
+def test_logging_path_env_overrides_project_file(monkeypatch, tmp_path):
+    """RAG_MCP_LOGGING_PATH wins over the [logging] table."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    _write_project_config(
+        tmp_path,
+        f'[chroma]\npersist_dir = "{db}"\n[logging]\npath = "file.log"\n',
+    )
+    monkeypatch.chdir(tmp_path)
+    dest = tmp_path / "env.log"
+
+    cfg = config.load_config(environ={"RAG_MCP_LOGGING_PATH": str(dest)})
+    assert cfg.logging_path == str(dest.resolve())
+
+
+def test_logging_path_escaping_root_raises(monkeypatch, tmp_path):
+    """A relative [logging] path escaping the project root raises ValueError."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    _write_project_config(
+        tmp_path,
+        f'[chroma]\npersist_dir = "{db}"\n[logging]\npath = "../outside.log"\n',
+    )
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ValueError, match="escapes project root"):
+        config.load_config(environ={})
+
+
+def test_logging_path_empty_and_non_string_raise(monkeypatch, tmp_path):
+    """Empty and non-string [logging] paths raise ValueError naming logging.path."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    monkeypatch.chdir(tmp_path)
+
+    for bad in ('[logging]\npath = ""\n', "[logging]\npath = 42\n"):
+        _write_project_config(tmp_path, f'[chroma]\npersist_dir = "{db}"\n' + bad)
+        with pytest.raises(ValueError, match="logging.path"):
+            config.load_config(environ={})
+
+
+def test_logging_path_defaults_to_cwd_without_project_file(monkeypatch, tmp_path):
+    """With no project file, the default log path resolves under the cwd."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    work = tmp_path / "empty"
+    monkeypatch.chdir(work)
+
+    cfg = config.load_config(environ={"RAG_MCP_CHROMA_PERSIST_DIR": str(db)})
+    assert cfg.logging_path == str((work / ".rag-mcp.log").resolve())
+
+
+def test_load_config_rejects_logging_in_global_config(monkeypatch, tmp_path):
+    """[logging] in global config.toml raises ValueError (project-local only)."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    global_path = _write_global_config(
+        tmp_path,
+        '[logging]\npath = "global.log"\n',
+    )
+    _write_project_config(tmp_path, f'[chroma]\npersist_dir = "{db}"\n')
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ValueError, match="logging"):
+        config.load_config(config_path=str(global_path), environ={})
+
+
+def test_logging_non_table_raises(monkeypatch, tmp_path):
+    """A non-table top-level `logging` key raises ValueError."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    _write_project_config(
+        tmp_path, f'logging = 42\n[chroma]\npersist_dir = "{db}"\n'
+    )
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ValueError, match="logging must be a table"):
+        config.load_config(environ={})
