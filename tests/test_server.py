@@ -1,5 +1,6 @@
 """Tests for rag_mcp.server MCP tools."""
 import asyncio
+import signal
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -577,3 +578,206 @@ def test_main_version_prints_version_and_exits_zero(
     mock_get_config.assert_not_called()
     mock_run.assert_not_called()
     mock_vectorstore.assert_not_called()
+
+
+def test_format_sync_counts_orders_fields():
+    """Counts render in a fixed order, defaulting missing keys to zero."""
+    from rag_mcp.server import _format_sync_counts
+
+    assert _format_sync_counts(
+        {"added": 1, "updated": 2, "deleted": 3, "unchanged": 4}
+    ) == "added=1 updated=2 deleted=3 unchanged=4"
+    assert _format_sync_counts({}) == "added=0 updated=0 deleted=0 unchanged=0"
+
+
+def test_log_sink_emits_to_stderr_and_file(tmp_path, capsys):
+    """One emit line goes to stderr and is appended to the log file verbatim."""
+    from rag_mcp.server import _LogSink
+
+    log_path = tmp_path / "rag.log"
+    sink = _LogSink(str(log_path))
+    try:
+        sink.emit("rag-mcp startup sync: added=1 updated=0 deleted=0 unchanged=2")
+    finally:
+        sink.close()
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "rag-mcp startup sync: added=1" in captured.err
+    assert log_path.read_text() == (
+        "rag-mcp startup sync: added=1 updated=0 deleted=0 unchanged=2\n"
+    )
+
+
+def test_log_sink_rotates_at_cap(tmp_path, monkeypatch):
+    """Once the cap is reached the file rotates to a single `.1` backup."""
+    from rag_mcp import server
+
+    monkeypatch.setattr(server, "LOG_FILE_CAP_BYTES", 80)
+    log_path = tmp_path / "rag.log"
+    sink = server._LogSink(str(log_path))
+    try:
+        sink.emit("a" * 80)
+        sink.emit("b" * 80)
+    finally:
+        sink.close()
+
+    assert (tmp_path / "rag.log.1").read_text() == "a" * 80 + "\n"
+    assert log_path.read_text() == "b" * 80 + "\n"
+
+
+def test_log_sink_unavailable_path_warns_once_and_keeps_stderr(tmp_path, capsys):
+    """An unopenable log path warns once and degrades to stderr-only, never raising."""
+    from rag_mcp.server import _LogSink
+
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a directory")
+    sink = _LogSink(str(blocker / "rag.log"))
+    sink.emit("first")
+    sink.emit("second")
+    sink.close()
+
+    captured = capsys.readouterr()
+    assert captured.err.count("rag-mcp log file unavailable") == 1
+    assert "first" in captured.err
+    assert "second" in captured.err
+
+
+def test_install_sigterm_handler_records_reason_and_exits():
+    """The SIGTERM handler records the reason and exits with 128+signum."""
+    from rag_mcp import server
+
+    state = {"reason": "exit"}
+    with patch("rag_mcp.server.signal.signal") as mock_signal:
+        server._install_sigterm_handler(state)
+
+    signum, handler = mock_signal.call_args.args
+    assert signum == signal.SIGTERM
+    with pytest.raises(SystemExit) as exc_info:
+        handler(signal.SIGTERM, None)
+    assert exc_info.value.code == 128 + signal.SIGTERM
+    assert state["reason"] == "SIGTERM"
+
+
+@patch("rag_mcp.server._LogSink")
+@patch("rag_mcp.server.ingest.sync_directory")
+@patch("rag_mcp.server.mcp.run")
+@patch("rag_mcp.server.VectorStore")
+@patch("rag_mcp.server.get_config")
+def test_main_logs_start_startup_and_shutdown(
+    mock_get_config, mock_vectorstore, mock_run, mock_sync, mock_sink_cls
+):
+    """main() logs the start config, startup sync counts, then shutdown; sink closes."""
+    cfg = _test_config()
+    cfg.ingest_watch = False
+    cfg.ingest_watch_interval = 30
+    cfg.logging_path = "/tmp/rag.log"
+    mock_get_config.return_value = cfg
+    mock_sync.return_value = {
+        "added": 2,
+        "updated": 0,
+        "deleted": 1,
+        "unchanged": 180,
+    }
+
+    from rag_mcp.server import main
+
+    main([])
+
+    mock_sink_cls.assert_called_once_with("/tmp/rag.log")
+    sink = mock_sink_cls.return_value
+    texts = [call.args[0] for call in sink.emit.call_args_list]
+    assert texts[0] == (
+        "rag-mcp start: persist_dir='/tmp/chroma' ingest_dir='/tmp/docs' "
+        "collection='docs' watch=False watch_interval=30"
+    )
+    assert texts[1] == (
+        "rag-mcp startup sync: added=2 updated=0 deleted=1 unchanged=180"
+    )
+    assert texts[-1] == "rag-mcp shutdown: reason=exit"
+    sink.close.assert_called_once()
+
+
+@patch("rag_mcp.server._LogSink")
+@patch("rag_mcp.server.ingest.sync_directory")
+@patch("rag_mcp.server.mcp.run")
+@patch("rag_mcp.server.VectorStore")
+@patch("rag_mcp.server.get_config")
+def test_main_skips_startup_sync_line_without_ingest_dir(
+    mock_get_config, mock_vectorstore, mock_run, mock_sync, mock_sink_cls
+):
+    """With no ingest directory there is no startup sync line, but start/shutdown stay."""
+    cfg = _test_config()
+    cfg.ingest_dir = None
+    cfg.ingest_watch = False
+    mock_get_config.return_value = cfg
+
+    from rag_mcp.server import main
+
+    main([])
+
+    texts = [call.args[0] for call in mock_sink_cls.return_value.emit.call_args_list]
+    assert texts[0].startswith("rag-mcp start:")
+    assert not any("startup sync" in text for text in texts)
+    assert texts[-1] == "rag-mcp shutdown: reason=exit"
+
+
+@patch("rag_mcp.server._install_sigterm_handler")
+@patch("rag_mcp.server._LogSink")
+@patch("rag_mcp.server.ingest.sync_directory")
+@patch("rag_mcp.server.mcp.run")
+@patch("rag_mcp.server.VectorStore")
+@patch("rag_mcp.server.get_config")
+def test_main_shutdown_line_reports_sigterm_reason(
+    mock_get_config,
+    mock_vectorstore,
+    mock_run,
+    mock_sync,
+    mock_sink_cls,
+    mock_install,
+):
+    """The shutdown line reads the live reason state, so SIGTERM reports itself."""
+    cfg = _test_config()
+    cfg.ingest_dir = None
+    cfg.ingest_watch = False
+    mock_get_config.return_value = cfg
+    mock_install.side_effect = lambda state: state.update(reason="SIGTERM")
+
+    from rag_mcp.server import main
+
+    main([])
+
+    mock_sink_cls.return_value.emit.assert_any_call(
+        "rag-mcp shutdown: reason=SIGTERM"
+    )
+
+
+@patch("rag_mcp.server._install_sigterm_handler")
+@patch("rag_mcp.server._LogSink")
+@patch("rag_mcp.server.ingest.sync_directory")
+@patch("rag_mcp.server.mcp.run")
+@patch("rag_mcp.server.VectorStore")
+@patch("rag_mcp.server.get_config")
+def test_main_shutdown_line_emitted_when_run_raises(
+    mock_get_config,
+    mock_vectorstore,
+    mock_run,
+    mock_sync,
+    mock_sink_cls,
+    mock_install,
+):
+    """A SystemExit out of mcp.run() still leaves the shutdown line (finally)."""
+    cfg = _test_config()
+    cfg.ingest_dir = None
+    cfg.ingest_watch = False
+    mock_get_config.return_value = cfg
+    mock_run.side_effect = SystemExit(143)
+
+    from rag_mcp.server import main
+
+    with pytest.raises(SystemExit):
+        main([])
+
+    mock_sink_cls.return_value.emit.assert_any_call(
+        "rag-mcp shutdown: reason=exit"
+    )
