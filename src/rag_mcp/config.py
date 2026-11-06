@@ -19,12 +19,14 @@ class Config:
     ingest_patterns: list[str] | None = None
     ingest_watch: bool = True
     ingest_watch_interval: int = 30
+    logging_path: str = ".rag-mcp.log"
 
 
 DEFAULT_EMBEDDINGS_HOST = "http://localhost:11434"
 DEFAULT_EMBEDDINGS_MODEL = "nomic-embed-text"
 DEFAULT_INGEST_COLLECTION = "default"
 DEFAULT_INGEST_WATCH_INTERVAL = 30
+DEFAULT_LOGGING_PATH = ".rag-mcp.log"
 
 PROJECT_CONFIG_FILENAME = ".rag-mcp.toml"
 
@@ -184,6 +186,11 @@ def load_config(
         raise ValueError(
             "ingest.patterns is project-local and cannot be set in global config"
         )
+    # logging is project-local only — reject if present in global config
+    if "logging" in global_data:
+        raise ValueError(
+            "logging is project-local and cannot be set in global config"
+        )
     embeddings_from_global = global_data.get("embeddings", {})
 
     project_path = _find_project_config_path()
@@ -267,6 +274,24 @@ def load_config(
         ingest.get("collection", DEFAULT_INGEST_COLLECTION),
     )
 
+    # Logging path: project-local [logging] table plus env override. Relative
+    # paths resolve against the project root (or cwd when there is no project
+    # file) and must stay within it; absolute paths are used as-is.
+    logging_cfg = project_data.get("logging", {})
+    if not isinstance(logging_cfg, dict):
+        raise ValueError("logging must be a table")
+    logging_raw = environ.get(
+        "RAG_MCP_LOGGING_PATH", logging_cfg.get("path", DEFAULT_LOGGING_PATH)
+    )
+    if not isinstance(logging_raw, str) or not logging_raw.strip():
+        raise ValueError(
+            f"logging.path must be a non-empty string: {logging_raw!r}"
+        )
+    logging_path = _resolve_path(
+        logging_raw,
+        project_root if project_root is not None else os.getcwd(),
+    )
+
     _validate_host(embeddings_host)
     if not embeddings_model or not embeddings_model.strip():
         raise ValueError("embeddings.model must be a non-empty string")
@@ -289,6 +314,7 @@ def load_config(
         ingest_patterns=ingest_patterns,
         ingest_watch=ingest_watch,
         ingest_watch_interval=ingest_watch_interval,
+        logging_path=logging_path,
     )
 
 
