@@ -232,9 +232,12 @@ Agents delegate test runs to the test subagent, passing the command in plain for
 ## Enforced Workflow
 
 - **Plan approval:** Code changes begin only after the user reviews/approves the plan. Developing a plan is not approval.
+- **Plan artifacts live in `docs/`:** the agreed design is written to `docs/<topic>-spec.md` (undated; superseded specs move to `docs/archive/` as `YYYY-MM-DD-<topic>-spec.md`) and reviewed before any test or code change. A plan that exists only in conversation is not a plan. Specs carry Issue, Status, Branch, a Locked decisions table, Test plan, Process, and an Amendment ledger.
 - **TDD order:** Write tests first and establish RED, then implement to GREEN. Tests are the locked contract — never change tests to make an implementation pass.
+- **Phase order:** spec → RED tests → GREEN code → user-facing docs (README, `docs/configuration-spec.md`, `AGENTS.md`) → finish. Each transition is a gate.
 - **Phase transitions are user-granted:** RED→GREEN and every other phase transition (including RED re-entries) happen only on the user's explicit approval. Passing tests, complete artifacts, or verification establish exit-eligibility only — never the transition. The agent does not self-certify phases; until the user approves the move, the current phase stands however complete its work looks.
 - **RED contract gaps:** If RED exposes a legitimate contract gap, stop and surface it. With user approval, amend the test, then stop again for user approval of the amended test before resuming GREEN.
+- **The spec never lies:** a legitimate design change is written into the spec, and recorded in its Amendment ledger, before it is applied to tests or code. If the tests or code contradict the spec, that is a defect to fix in the current phase, not something to reconcile in a later docs pass. A new spec or amendment names the existing spec text it supersedes.
 - **Stop gates:** User-held review checkpoints. After each substantive stage, stop for user review/approval. Final review and commit are performed by the user.
 - **No commits:** Unless you are the @commit agent, never commit, push, or stage-then-commit. Automated checks and delegate reports do not constitute user approval.
 - **Delegation tiers:** @lint and @commit are specialists and receive outcomes only — @commit is never without being explicitly directed by the user. @coder and @explore are generalists and may receive precise specifications.
