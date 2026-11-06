@@ -168,11 +168,16 @@ implementation first.
 
 1. Branch: `scripts/issue-branch create feature 6 sync-logging` (done)
 2. Spec written (this file) → user review/approval gate
-3. Test amendment → RED re-entry → user review/approval gate
-4. GREEN implementation → user review gate
-5. Docs: README, `docs/configuration-spec.md`, `AGENTS.md`; align
+3. Scaffold → already satisfied by the committed implementation `30ab67d`:
+   the helpers the amended tests name (`_instance_tag`, `_display_path`,
+   `_LogSink`, `Config.project_root`) exist or are part of this amendment, so
+   no structural gap prevents the tests from expressing themselves. Any gap
+   found at amendment time is a spec amendment first, never invented in code.
+4. Test amendment → RED re-entry → user review/approval gate
+5. GREEN implementation → user review gate
+6. Docs: README, `docs/configuration-spec.md`, `AGENTS.md`; align
    `docs/watch-mode-spec.md` lines 41 and 126 with this spec → user review gate
-6. User reviews, commits, finishes (`scripts/issue-branch finish`)
+7. User reviews, commits, finishes (`scripts/issue-branch finish`)
 
 ## Amendment ledger
 
