@@ -619,21 +619,24 @@ def test_display_path_relative_inside_absolute_outside(tmp_path):
     assert _display_path(sibling, root) == sibling  # never ".."
 
 
-def _assert_file_line(line: str, expected_body: str) -> None:
-    """The file form is the same line behind an ISO-8601 UTC timestamp."""
+def _assert_file_line(line: str, expected_body: str, pid: int) -> None:
+    """The file form is the body behind an ISO-8601 UTC timestamp and `pid=<pid>`."""
     assert re.fullmatch(
-        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z " + re.escape(expected_body),
+        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z pid="
+        + str(pid)
+        + " "
+        + re.escape(expected_body),
         line,
     ), line
 
 
 def test_log_sink_emits_to_stderr_and_file(tmp_path, capsys):
-    """One emit body reaches stderr tagged, and the file adds an ISO timestamp."""
+    """One emit body reaches stderr tagged, and the file adds an ISO timestamp + pid."""
     from rag_mcp.server import _LogSink
 
     tag = "rag-mcp[proj:123]"
     log_path = tmp_path / "rag.log"
-    sink = _LogSink(str(log_path), tag)
+    sink = _LogSink(str(log_path), tag, 4242)
     try:
         sink.emit("startup sync: added=1 updated=0 deleted=0 unchanged=2")
     finally:
@@ -647,7 +650,7 @@ def test_log_sink_emits_to_stderr_and_file(tmp_path, capsys):
     lines = log_path.read_text().splitlines()
     assert len(lines) == 1
     _assert_file_line(
-        lines[0], f"{tag} startup sync: added=1 updated=0 deleted=0 unchanged=2"
+        lines[0], "startup sync: added=1 updated=0 deleted=0 unchanged=2", 4242
     )
 
 
@@ -658,7 +661,7 @@ def test_log_sink_rotates_at_cap(tmp_path, monkeypatch):
     monkeypatch.setattr(server, "LOG_FILE_CAP_BYTES", 300)
     tag = "rag-mcp[proj:123]"
     log_path = tmp_path / "rag.log"
-    sink = server._LogSink(str(log_path), tag)
+    sink = server._LogSink(str(log_path), tag, 4242)
     try:
         sink.emit("a" * 300)
         sink.emit("b" * 300)
@@ -667,8 +670,8 @@ def test_log_sink_rotates_at_cap(tmp_path, monkeypatch):
 
     backup = (tmp_path / "rag.log.1").read_text().splitlines()
     current = log_path.read_text().splitlines()
-    assert len(backup) == 1 and backup[0].endswith(" " + tag + " " + "a" * 300)
-    assert len(current) == 1 and current[0].endswith(" " + tag + " " + "b" * 300)
+    assert len(backup) == 1 and backup[0].endswith(" pid=4242 " + "a" * 300)
+    assert len(current) == 1 and current[0].endswith(" pid=4242 " + "b" * 300)
 
 
 def test_log_sink_unavailable_path_warns_once_and_keeps_stderr(tmp_path, capsys):
@@ -677,7 +680,7 @@ def test_log_sink_unavailable_path_warns_once_and_keeps_stderr(tmp_path, capsys)
 
     blocker = tmp_path / "blocker"
     blocker.write_text("not a directory")
-    sink = _LogSink(str(blocker / "rag.log"), "rag-mcp[proj:123]")
+    sink = _LogSink(str(blocker / "rag.log"), "rag-mcp[proj:123]", 4242)
     sink.emit("first")
     sink.emit("second")
     sink.close()
@@ -736,6 +739,7 @@ def test_main_logs_start_startup_and_shutdown(
     sink_args = mock_sink_cls.call_args.args
     assert sink_args[0] == "/tmp/rag.log"
     assert sink_args[1] == f"rag-mcp[project:{os.getpid()}]"
+    assert sink_args[2] == os.getpid()
     sink = mock_sink_cls.return_value
     texts = [call.args[0] for call in sink.emit.call_args_list]
     assert texts[0] == "project='/tmp/project'"
