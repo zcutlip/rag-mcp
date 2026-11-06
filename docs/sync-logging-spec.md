@@ -39,6 +39,7 @@ what it synced, and why it stopped.
 |---|---|
 | Channels | stderr (bare line) + project-local file (same line, ISO timestamp prefix) |
 | Line prefix | `rag-mcp[<project-dir-name>:<pid>]` on every line — project basename, then the OS PID of this rag-mcp child process |
+| Prefix application | `_LogSink(path, tag)` owns the prefix: callers pass a bare body, the sink writes `<tag> <body>` to stderr and `<ISO timestamp> <tag> <body>` to the file. The failure body stays byte-for-byte `watch sync failed: {exc!r}`, so its test remains an exact assertion |
 | Project line | `project='<project root>'`, emitted once at startup, before the start line |
 | Project root | Directory containing the discovered `.rag-mcp.toml`; the process cwd when no project file exists. Stored on `Config` so the tag and path rendering never re-derive it |
 | Path rendering | A path inside the project root prints relative to it (`docs`, `.chroma`); a path outside prints absolute. Never `..`, never a `./` prefix |
@@ -160,8 +161,8 @@ implementation first.
 - `test_ingest_watch.py`
   - changed tick emits exactly one tagged line with counts
   - idle ticks emit nothing
-  - failed tick emits `watch sync failed: OSError('disk vanished')` (containment,
-    not equality, because the tag now prefixes it)
+  - failed tick emits `watch sync failed: OSError('disk vanished')` (exact body
+    equality — the tag is applied by the sink, so the body is unchanged)
   - `_make_sync_fn` returns the sync result; `_start_watcher` forwards the sink
 
 ## Process
@@ -187,3 +188,7 @@ implementation first.
   as the anchor. Supersedes the untagged format pinned by commits `d6fb84c`,
   `e32061b`, `a918349` and implemented in `30ab67d`. Adds the `[logging]`
   contract to the project-local-only rule alongside `ingest.patterns`.
+- **Amendment 2** (this change, awaiting approval): the prefix is applied by `_LogSink(path, tag)`,
+  not by individual emit sites. Callers pass bare bodies, so the failure line
+  stays byte-for-byte unchanged and its test remains an exact assertion. The
+  test-plan line was corrected to match; no observable format change.
