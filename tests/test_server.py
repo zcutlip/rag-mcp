@@ -1,5 +1,7 @@
 """Tests for rag_mcp.server MCP tools."""
 import asyncio
+import os
+import re
 import signal
 from unittest.mock import MagicMock, patch
 
@@ -14,6 +16,7 @@ def _test_config():
         chroma_persist_dir="/tmp/chroma",
         ingest_dir="/tmp/docs",
         ingest_collection="docs",
+        project_root="/tmp/project",
     )
 
 
@@ -590,22 +593,61 @@ def test_format_sync_counts_orders_fields():
     assert _format_sync_counts({}) == "added=0 updated=0 deleted=0 unchanged=0"
 
 
+def test_instance_tag_uses_project_basename_and_pid():
+    """The tag identifies the project directory and this OS process."""
+    from rag_mcp.server import _instance_tag
+
+    cfg = MagicMock(
+        project_root="/Users/zach/projects/platform-security-guide-scraper"
+    )
+    assert _instance_tag(cfg) == (
+        f"rag-mcp[platform-security-guide-scraper:{os.getpid()}]"
+    )
+
+
+def test_display_path_relative_inside_absolute_outside(tmp_path):
+    """Paths inside the project render relative (no `./`); outside ones stay absolute."""
+    from rag_mcp.server import _display_path
+
+    root = str(tmp_path)
+    assert _display_path(str(tmp_path / ".chroma"), root) == ".chroma"
+    assert _display_path(str(tmp_path / "docs"), root) == "docs"
+    assert _display_path("/Volumes/External/rag-chroma", root) == (
+        "/Volumes/External/rag-chroma"
+    )
+    sibling = str(tmp_path.parent / (tmp_path.name + "-sibling") / "docs")
+    assert _display_path(sibling, root) == sibling  # never ".."
+
+
+def _assert_file_line(line: str, expected_body: str) -> None:
+    """The file form is the same line behind an ISO-8601 UTC timestamp."""
+    assert re.fullmatch(
+        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z " + re.escape(expected_body),
+        line,
+    ), line
+
+
 def test_log_sink_emits_to_stderr_and_file(tmp_path, capsys):
-    """One emit line goes to stderr and is appended to the log file verbatim."""
+    """One emit body reaches stderr tagged, and the file adds an ISO timestamp."""
     from rag_mcp.server import _LogSink
 
+    tag = "rag-mcp[proj:123]"
     log_path = tmp_path / "rag.log"
-    sink = _LogSink(str(log_path))
+    sink = _LogSink(str(log_path), tag)
     try:
-        sink.emit("rag-mcp startup sync: added=1 updated=0 deleted=0 unchanged=2")
+        sink.emit("startup sync: added=1 updated=0 deleted=0 unchanged=2")
     finally:
         sink.close()
 
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert "rag-mcp startup sync: added=1" in captured.err
-    assert log_path.read_text() == (
-        "rag-mcp startup sync: added=1 updated=0 deleted=0 unchanged=2\n"
+    assert captured.err == (
+        f"{tag} startup sync: added=1 updated=0 deleted=0 unchanged=2\n"
+    )
+    lines = log_path.read_text().splitlines()
+    assert len(lines) == 1
+    _assert_file_line(
+        lines[0], f"{tag} startup sync: added=1 updated=0 deleted=0 unchanged=2"
     )
 
 
@@ -613,17 +655,20 @@ def test_log_sink_rotates_at_cap(tmp_path, monkeypatch):
     """Once the cap is reached the file rotates to a single `.1` backup."""
     from rag_mcp import server
 
-    monkeypatch.setattr(server, "LOG_FILE_CAP_BYTES", 80)
+    monkeypatch.setattr(server, "LOG_FILE_CAP_BYTES", 300)
+    tag = "rag-mcp[proj:123]"
     log_path = tmp_path / "rag.log"
-    sink = server._LogSink(str(log_path))
+    sink = server._LogSink(str(log_path), tag)
     try:
-        sink.emit("a" * 80)
-        sink.emit("b" * 80)
+        sink.emit("a" * 300)
+        sink.emit("b" * 300)
     finally:
         sink.close()
 
-    assert (tmp_path / "rag.log.1").read_text() == "a" * 80 + "\n"
-    assert log_path.read_text() == "b" * 80 + "\n"
+    backup = (tmp_path / "rag.log.1").read_text().splitlines()
+    current = log_path.read_text().splitlines()
+    assert len(backup) == 1 and backup[0].endswith(" " + tag + " " + "a" * 300)
+    assert len(current) == 1 and current[0].endswith(" " + tag + " " + "b" * 300)
 
 
 def test_log_sink_unavailable_path_warns_once_and_keeps_stderr(tmp_path, capsys):
@@ -632,7 +677,7 @@ def test_log_sink_unavailable_path_warns_once_and_keeps_stderr(tmp_path, capsys)
 
     blocker = tmp_path / "blocker"
     blocker.write_text("not a directory")
-    sink = _LogSink(str(blocker / "rag.log"))
+    sink = _LogSink(str(blocker / "rag.log"), "rag-mcp[proj:123]")
     sink.emit("first")
     sink.emit("second")
     sink.close()
@@ -672,6 +717,9 @@ def test_main_logs_start_startup_and_shutdown(
     cfg.ingest_watch = False
     cfg.ingest_watch_interval = 30
     cfg.logging_path = "/tmp/rag.log"
+    cfg.project_root = "/tmp/project"
+    cfg.chroma_persist_dir = "/tmp/project/.chroma"
+    cfg.ingest_dir = "/tmp/project/docs"
     mock_get_config.return_value = cfg
     mock_sync.return_value = {
         "added": 2,
@@ -684,17 +732,21 @@ def test_main_logs_start_startup_and_shutdown(
 
     main([])
 
-    mock_sink_cls.assert_called_once_with("/tmp/rag.log")
+    mock_sink_cls.assert_called_once()
+    sink_args = mock_sink_cls.call_args.args
+    assert sink_args[0] == "/tmp/rag.log"
+    assert sink_args[1] == f"rag-mcp[project:{os.getpid()}]"
     sink = mock_sink_cls.return_value
     texts = [call.args[0] for call in sink.emit.call_args_list]
-    assert texts[0] == (
-        "rag-mcp start: persist_dir='/tmp/chroma' ingest_dir='/tmp/docs' "
+    assert texts[0] == "project='/tmp/project'"
+    assert texts[1] == (
+        "start: persist_dir='.chroma' ingest_dir='docs' "
         "collection='docs' watch=False watch_interval=30"
     )
-    assert texts[1] == (
-        "rag-mcp startup sync: added=2 updated=0 deleted=1 unchanged=180"
+    assert texts[2] == (
+        "startup sync: added=2 updated=0 deleted=1 unchanged=180"
     )
-    assert texts[-1] == "rag-mcp shutdown: reason=exit"
+    assert texts[-1] == "shutdown: reason=exit"
     sink.close.assert_called_once()
 
 
@@ -717,9 +769,10 @@ def test_main_skips_startup_sync_line_without_ingest_dir(
     main([])
 
     texts = [call.args[0] for call in mock_sink_cls.return_value.emit.call_args_list]
-    assert texts[0].startswith("rag-mcp start:")
+    assert texts[0] == "project='/tmp/project'"
+    assert texts[1].startswith("start:")
     assert not any("startup sync" in text for text in texts)
-    assert texts[-1] == "rag-mcp shutdown: reason=exit"
+    assert texts[-1] == "shutdown: reason=exit"
 
 
 @patch("rag_mcp.server._install_sigterm_handler")
@@ -748,7 +801,7 @@ def test_main_shutdown_line_reports_sigterm_reason(
     main([])
 
     mock_sink_cls.return_value.emit.assert_any_call(
-        "rag-mcp shutdown: reason=SIGTERM"
+        "shutdown: reason=SIGTERM"
     )
 
 
@@ -779,5 +832,5 @@ def test_main_shutdown_line_emitted_when_run_raises(
         main([])
 
     mock_sink_cls.return_value.emit.assert_any_call(
-        "rag-mcp shutdown: reason=exit"
+        "shutdown: reason=exit"
     )
