@@ -12,8 +12,8 @@ Client (MCP) → server.py (MCPServer) → get_embeddings() → Ollama API
 ```
 
 **Module responsibilities:**
-- `config.py`: `Config` frozen dataclass plus `load_config()`/`get_config()`. Loads a global `config.toml` (only `[embeddings]`) and a project `.rag-mcp.toml` (discovered by cwd walk-up) with `RAG_MCP_*` env overrides. Resolves relative paths in the project file against the project root and constrains them to it. Validates eagerly (fail fast), including strict bool/int validation for `[ingest] watch`/`watch_interval`.
-- `server.py`: MCPServer entry point, defines 5 tools (add_documents, query_documents, list_collections, delete_collection, sync) plus `--help`/`readme` CLI commands; module-level `mcp` plus a lazy `store` built in `main()` and accessed via `get_store()`. `main()` also starts the background ingest watcher after the startup auto-ingest (see `docs/watch-mode-spec.md` for the pinned contract)
+- `config.py`: `Config` frozen dataclass plus `load_config()`/`get_config()`. Loads a global `config.toml` (only `[embeddings]`) and a project `.rag-mcp.toml` (discovered by cwd walk-up) with `RAG_MCP_*` env overrides. Resolves relative paths in the project file against the project root and constrains them to it; `project_root` is exposed on the config so the log tag and path rendering never re-derive it. Validates eagerly (fail fast), including strict bool/int validation for `[ingest] watch`/`watch_interval` and the project-local `[logging] path` (rejected in the global file).
+- `server.py`: MCPServer entry point, defines 5 tools (add_documents, query_documents, list_collections, delete_collection, sync) plus `--help`/`readme` CLI commands; module-level `mcp` plus a lazy `store` built in `main()` and accessed via `get_store()`. `main()` also starts the background ingest watcher after the startup auto-ingest (see `docs/watch-mode-spec.md` for the pinned contract) and emits the lifecycle lines (`project=`, `start:`, `startup sync:`, `watch sync:`, `shutdown:`) through `_LogSink`, a dual stderr + project-file sink (see `docs/sync-logging-spec.md`)
 - `embeddings.py`: Ollama embedding client, `get_embeddings(texts, host, model)` with compatibility shim for SDK >=0.4 (host/model passed in, no `os.environ` access)
 - `store.py`: ChromaDB wrapper class `VectorStore` with add/query/upsert/get_all_metadata/delete_ids/list_collections/delete_collection operations
 - `ingest.py`: directory-to-vector-store sync (`should_include`, `iter_markdown_files`, `chunk_text`, `file_hash`, `sync_directory` with `patterns` filtering, `parse_frontmatter`, `strip_frontmatter`). Parses YAML frontmatter from markdown files and stores metadata (title, url, tags, created, updated). Reserved sync keys (`source`, `content_hash`, `chunk_index`) are set after the frontmatter spread so same-named frontmatter fields (e.g. Obsidian `source:` URLs) can never displace them. Contentless files (empty after frontmatter strip) store nothing and count as `unchanged`, so the sync converges. `should_include` is the pure `fnmatch` matcher (ordered patterns, last-match-wins, `!` negates, case-insensitive). The one module that composes the other two — takes a `VectorStore` instance plus `embeddings_host`/`embeddings_model` as parameters (never globals) so it stays unit-testable
@@ -114,8 +114,9 @@ Environment variables (all optional overrides):
 - `RAG_MCP_INGEST_COLLECTION` (default: `default`) — collection for the startup auto-ingest
 - `RAG_MCP_INGEST_WATCH` (default: `true`) — enable/disable the background re-sync watcher (`true`/`false` only; anything else raises `ValueError`)
 - `RAG_MCP_INGEST_WATCH_INTERVAL` (default: `30`) — seconds between background re-syncs; positive integer
+- `RAG_MCP_LOGGING_PATH` (default: `<project root>/.rag-mcp.log`) — project-local log file; relative resolves inside the project root
 
-Global TOML keys: `[embeddings] host`/`model`. Project TOML keys: `[embeddings]` (optional override), `[chroma] persist_dir`, `[ingest] directory`/`collection`/`watch`/`watch_interval`/`patterns` (watch, watch_interval, patterns are project-local only, no env var for patterns). Relative paths in the project file resolve against the project root and must stay within it.
+Global TOML keys: `[embeddings] host`/`model`. Project TOML keys: `[embeddings]` (optional override), `[chroma] persist_dir`, `[ingest] directory`/`collection`/`watch`/`watch_interval`/`patterns`, `[logging] path` (watch, watch_interval, patterns, logging are project-local only; `[logging]` in the global file raises, unlike the ignored `[chroma]`/`[ingest]`). Relative paths in the project file resolve against the project root and must stay within it.
 
 **Error handling:**
 - Validation errors raise `ValueError` with descriptive messages (e.g., mismatched list lengths)
@@ -156,8 +157,8 @@ Global TOML keys: `[embeddings] host`/`model`. Project TOML keys: `[embeddings]`
 - `.pre-commit-config.yaml` — Lint/format hooks (flake8, autopep8, isort, pyupgrade, shellcheck)
 
 **Key modules:**
-- `src/rag_mcp/config.py` — `Config` dataclass, `load_config()`/`get_config()` with global+project TOML + env validation; resolves relative paths against project root
-- `src/rag_mcp/server.py` — MCPServer server, 5 tool definitions, `get_store()`/`get_config()` wiring
+- `src/rag_mcp/config.py` — `Config` dataclass, `load_config()`/`get_config()` with global+project TOML + env validation; resolves relative paths against project root; exposes `project_root` and `logging_path`
+- `src/rag_mcp/server.py` — MCPServer server, 5 tool definitions, `get_store()`/`get_config()` wiring, `_LogSink` dual-sink lifecycle logging (`docs/sync-logging-spec.md`)
 - `src/rag_mcp/embeddings.py` — `get_embeddings(texts, host, model)` with Ollama SDK compatibility shim
 - `src/rag_mcp/store.py` — `VectorStore` class wrapping `chromadb.PersistentClient`
 - `src/rag_mcp/ingest.py` — `sync_directory()` with `patterns` filtering via `should_include`, deterministic chunk IDs and hash-based incremental re-sync
@@ -183,18 +184,18 @@ Global TOML keys: `[embeddings] host`/`model`. Project TOML keys: `[embeddings]`
 
 **Framework:** pytest
 
-**Test count:** 144 tests total
-- `test_config.py`: 39 tests (defaults, global+project+env precedence, cwd walk-up discovery, relative-path resolution, subpath constraint, `~` expansion, missing/invalid config files, invalid host/model, missing ingest dir, `get_config()` caching, ingest patterns, ingest watch/watch_interval validation)
-- `test_config_cli.py`: 8 tests for `rag-mcp-config init` utility (writes both files, skips existing, mkdir parents, cwd-only project, help/unknown verb)
+**Test count:** 173 tests total
+- `test_config.py`: 50 tests (defaults, global+project+env precedence, cwd walk-up discovery, relative-path resolution, subpath constraint, `~` expansion, missing/invalid config files, invalid host/model, missing ingest dir, `get_config()` caching, ingest patterns, ingest watch/watch_interval validation, `project_root`, `[logging] path` resolution/validation and global-file rejection)
+- `test_config_cli.py`: 9 tests for `rag-mcp-config init` utility (writes both files, skips existing, mkdir parents, cwd-only project, help/unknown verb)
 - `test_embeddings.py`: 2 tests (empty input, success passes host/model)
 - `test_frontmatter.py`: 7 tests (YAML frontmatter parsing, stripping, invalid YAML handling)
 - `test_ingest_frontmatter.py`: 12 tests (frontmatter metadata storage, migration, incremental sync with frontmatter)
 - `test_store.py`: 5 tests (add+query, ID generation, validation, lifecycle, empty collection)
-- `test_server.py`: 33 tests (add_documents, query_documents happy+empty, list_collections, delete_collection, empty documents, validation, main config error guidance, main auto-ingest forwards host/model, main watcher start gating, main --help/readme/unknown-command behavior, server metadata, rag://readme resource, tool descriptions, sync patterns wiring)
+- `test_server.py`: 44 tests (add_documents, query_documents happy+empty, list_collections, delete_collection, empty documents, validation, main config error guidance, main auto-ingest forwards host/model, main watcher start gating, main --help/readme/unknown-command behavior, server metadata, rag://readme resource, tool descriptions, sync patterns wiring, `_instance_tag`, `_display_path`, sink stderr/file forms with `pid=`, rotation, warn-once degrade, `project=`/start/startup/shutdown lines)
 - `test_query_structured.py`: 8 tests (structured response format, compact mode, source deduplication, distance rounding, ranking)
-- `test_ingest.py`: 6 tests (chunking short/long text, first-time sync, noop re-sync, changed-file re-sync, deleted-file re-sync)
+- `test_ingest.py`: 8 tests (chunking short/long text, first-time sync, noop re-sync, changed-file re-sync, deleted-file re-sync)
 - `test_ingest_patterns.py`: 15 tests for ordered patterns filtering (should_include + sync integration)
-- `test_ingest_watch.py`: 7 tests (watch loop sleep-first tick order, prompt-exit cancel semantics, failed-tick error-continue, `_make_sync_fn` argument contract, daemon `_start_watcher`, server-import safety)
+- `test_ingest_watch.py`: 12 tests (watch loop sleep-first tick order, prompt-exit cancel semantics, failed-tick error-continue, `_make_sync_fn` argument contract, daemon `_start_watcher`, sink forwarding, gated tick line, server-import safety)
 - `test_version.py`: 1 test for package version (allows .dev local versions)
 
 **Test isolation:**
