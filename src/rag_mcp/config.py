@@ -16,6 +16,7 @@ class Config:
     chroma_persist_dir: str
     ingest_dir: str | None
     ingest_collection: str
+    project_root: str
     ingest_patterns: list[str] | None = None
     ingest_watch: bool = True
     ingest_watch_interval: int = 30
@@ -311,6 +312,9 @@ def load_config(
         chroma_persist_dir=persist_dir,
         ingest_dir=ingest_dir,
         ingest_collection=ingest_collection,
+        project_root=(
+            project_root if project_root is not None else os.getcwd()
+        ),
         ingest_patterns=ingest_patterns,
         ingest_watch=ingest_watch,
         ingest_watch_interval=ingest_watch_interval,
