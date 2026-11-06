@@ -140,7 +140,7 @@ def test_watch_loop_logs_changed_tick_with_counts():
     server._watch_loop(sync, 5, fake_sleep, cancel, sink)
     assert sync.call_count == 1
     sink.emit.assert_called_once_with(
-        "rag-mcp watch sync: added=2 updated=1 deleted=3 unchanged=40"
+        "watch sync: added=2 updated=1 deleted=3 unchanged=40"
     )
 
 
