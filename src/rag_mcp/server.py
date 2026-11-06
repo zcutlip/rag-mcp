@@ -234,6 +234,16 @@ def _format_sync_counts(result: dict[str, int]) -> str:
     )
 
 
+def _instance_tag(config) -> str:
+    """Scaffold placeholder for the per-process log tag (no rendering yet)."""
+    return ""
+
+
+def _display_path(path: str, project_root: str) -> str:
+    """Scaffold placeholder for root-relative path rendering (no rendering yet)."""
+    return path
+
+
 LOG_FILE_CAP_BYTES = 1_000_000
 LOG_FILE_BACKUP_SUFFIX = ".1"
 
@@ -254,10 +264,11 @@ class _LogSink:
     never fail server boot.
     """
 
-    def __init__(self, path: str | None) -> None:
+    def __init__(self, path: str | None, tag: str) -> None:
         self._lock = threading.Lock()
         self._file = None
         self._path = path
+        self._tag = tag
         self._warned = False
         if path:
             try:
@@ -436,7 +447,7 @@ def main(argv: list[str] | None = None) -> None:
         )
         sys.exit(1)
     store = VectorStore(persist_dir=config.chroma_persist_dir)
-    sink = _LogSink(config.logging_path)
+    sink = _LogSink(config.logging_path, _instance_tag(config))
     _emit(
         sink,
         f"rag-mcp start: persist_dir='{config.chroma_persist_dir}' "
