@@ -1,7 +1,7 @@
 # Sync Logging Spec
 
 Issue: #6
-Status: design agreed — spec written; test amendment (RED re-entry) pending review
+Status: design agreed — Amendment 3 (file prefix) pending review
 Branch: dev/6-sync-logging (created with `scripts/issue-branch create feature 6 sync-logging`)
 
 ## Objective
@@ -27,7 +27,8 @@ what it synced, and why it stopped.
 3. **Lines identify their process.** opencode funnels every local MCP
    server's stderr into one global log tagged only by the server's config
    key — identical across projects, and ambiguous when several sessions
-   run. Each line therefore carries the project name and the PID.
+   run. Each stderr line therefore carries the project name and the PID; the
+   per-project file needs only the PID.
 4. **Logging never breaks the server.** An unusable log file degrades to
    stderr-only with one warning. Writes never raise into the sync path.
 5. **stdout stays protocol-clean.** MCP stdio owns stdin/stdout for
@@ -37,9 +38,9 @@ what it synced, and why it stopped.
 
 | Item | Decision |
 |---|---|
-| Channels | stderr (bare line) + project-local file (same line, ISO timestamp prefix) |
-| Line prefix | `rag-mcp[<project-dir-name>:<pid>]` on every line — project basename, then the OS PID of this rag-mcp child process |
-| Prefix application | `_LogSink(path, tag)` owns the prefix: callers pass a bare body, the sink writes `<tag> <body>` to stderr and `<ISO timestamp> <tag> <body>` to the file. The failure body stays byte-for-byte `watch sync failed: {exc!r}`, so its test remains an exact assertion |
+| Channels | stderr (`<tag>` prefix) + project-local file (`<ISO timestamp> pid=<pid> ` prefix); the body is identical on both |
+| Line prefix | stderr: `rag-mcp[<project-dir-name>:<pid>]` on every line — project basename, then the OS PID of this rag-mcp child process. File: `<ISO timestamp> pid=<pid>` — see File form |
+| Prefix application | `_LogSink(path, tag, pid)` owns both prefixes: callers pass a bare body, the sink writes `<tag> <body>` to stderr and `<ISO timestamp> pid=<pid> <body>` to the file. The failure body stays byte-for-byte `watch sync failed: {exc!r}`, so its test remains an exact assertion |
 | Project line | `project='<project root>'`, emitted once at startup, before the start line |
 | Project root | Directory containing the discovered `.rag-mcp.toml`; the process cwd when no project file exists. Stored on `Config` so the tag and path rendering never re-derive it |
 | Path rendering | A path inside the project root prints relative to it (`docs`, `.chroma`); a path outside prints absolute. Never `..`, never a `./` prefix |
@@ -57,7 +58,7 @@ what it synced, and why it stopped.
 
 ### Line types
 
-| Event | Line body (after the `rag-mcp[<project>:<pid>] ` prefix) | Frequency |
+| Event | Line body (after the stderr prefix `rag-mcp[<project>:<pid>] `) | Frequency |
 |---|---|---|
 | Project | `project='<project root>'` | once per run, before the start line |
 | Start | `start: persist_dir='<path>' ingest_dir='<path>' collection='<name>' watch=<bool> watch_interval=<int>` | once per run, after the store is built |
@@ -90,10 +91,25 @@ rag-mcp[platform-security-guide-scraper:48213] shutdown: reason=exit
 
 ### File form
 
-File lines are the identical body prefixed with an ISO-8601 UTC timestamp and
-a space: `2026-11-05T04:43:12.772Z rag-mcp[...] watch sync: added=1 ...`.
-Timestamps are file-only so stderr stays terse; both sinks remain greppable
-with the same substring.
+File lines carry the identical body behind a different prefix:
+`<ISO-8601 UTC timestamp> pid=<pid> `.
+
+```text
+2026-11-06T19:46:18.037Z pid=13056 project='/Users/zach/Sync/Projects/src/apple-platform-security-guide'
+2026-11-06T19:46:18.038Z pid=13056 start: persist_dir='.chroma' ingest_dir='docs' collection='default' watch=True watch_interval=60
+2026-11-06T19:46:18.144Z pid=13056 startup sync: added=0 updated=0 deleted=0 unchanged=187
+2026-11-06T20:12:03.501Z pid=13056 watch sync: added=0 updated=1 deleted=0 unchanged=186
+2026-11-06T20:14:59.220Z pid=13056 watch sync failed: OSError('disk vanished')
+2026-11-06T21:03:44.910Z pid=13056 shutdown: reason=exit
+```
+
+The file is per project and named for the tool, so `rag-mcp` and the project
+name add nothing the path does not already say. The PID does: two sessions on
+one project append to the same file, and it is the only way to attribute a
+line to one of them. `pid=` matches the `key=value` style of the bodies and
+greps without escaping brackets. Timestamps are file-only so stderr stays
+terse; both sinks keep the body identical, so a body substring still matches
+in either channel, and a `pid=<n>` grep selects one instance across both.
 
 ## Scope
 
@@ -156,8 +172,8 @@ implementation first.
   - project line, start line, startup sync line, shutdown line (`exit` and
     `SIGTERM`), shutdown on `SystemExit` out of `mcp.run()`
   - no startup sync line without an ingest dir
-  - sink: stderr bare + file timestamped, rotation at cap, warn-once degrade to
-    stderr, close on shutdown
+  - sink: stderr `<tag> <body>` + file `<timestamp> pid=<pid> <body>`, rotation
+    at cap, warn-once degrade to stderr, close on shutdown
 - `test_ingest_watch.py`
   - changed tick emits exactly one tagged line with counts
   - idle ticks emit nothing
@@ -188,7 +204,14 @@ implementation first.
   as the anchor. Supersedes the untagged format pinned by commits `d6fb84c`,
   `e32061b`, `a918349` and implemented in `30ab67d`. Adds the `[logging]`
   contract to the project-local-only rule alongside `ingest.patterns`.
-- **Amendment 2** (this change, awaiting approval): the prefix is applied by `_LogSink(path, tag)`,
+- **Amendment 2** (approved, committed): the prefix is applied by `_LogSink(path, tag)`,
   not by individual emit sites. Callers pass bare bodies, so the failure line
   stays byte-for-byte unchanged and its test remains an exact assertion. The
   test-plan line was corrected to match; no observable format change.
+- **Amendment 3** (this change, awaiting approval): the file prefix is reduced to
+  `<ISO timestamp> pid=<pid> ` — `rag-mcp` and the project name are redundant in
+  a per-project, tool-named file, while the PID remains the only way to
+  attribute a line to one of several sessions appending to it. The sink becomes
+  `_LogSink(path, tag, pid)` and renders each channel's prefix itself; stderr is
+  unchanged. Supersedes the file-prefix rule in Amendment 2 and the single-prefix
+  wording of the Channels and Prefix application rows, plus the File form section.
