@@ -718,3 +718,28 @@ def test_logging_non_table_raises(monkeypatch, tmp_path):
 
     with pytest.raises(ValueError, match="logging must be a table"):
         config.load_config(environ={})
+
+
+def test_project_root_is_config_directory(monkeypatch, tmp_path):
+    """The project root is the directory holding the discovered .rag-mcp.toml."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    _write_project_config(tmp_path, f'[chroma]\npersist_dir = "{db}"\n')
+    nested = tmp_path / "a" / "b"
+    nested.mkdir(parents=True)
+    monkeypatch.chdir(nested)
+
+    cfg = config.load_config(environ={})
+    assert cfg.project_root == str(tmp_path.resolve())
+
+
+def test_project_root_is_cwd_without_project_file(monkeypatch, tmp_path):
+    """With no project file the root is the process cwd."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    work = tmp_path / "empty"
+
+    cfg = config.load_config(environ={"RAG_MCP_CHROMA_PERSIST_DIR": str(db)})
+    assert cfg.project_root == str(work.resolve())
