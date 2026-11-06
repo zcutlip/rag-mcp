@@ -6,6 +6,7 @@ import signal
 import sys
 import threading
 import time
+from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, metadata
 from typing import Any
 
@@ -234,14 +235,28 @@ def _format_sync_counts(result: dict[str, int]) -> str:
     )
 
 
-def _instance_tag(config) -> str:
-    """Scaffold placeholder for the per-process log tag (no rendering yet)."""
-    return ""
+def _instance_tag(config: Any) -> str:
+    """Render the per-process log tag: ``rag-mcp[<project-dir-name>:<pid>]``."""
+    name = os.path.basename(config.project_root.rstrip(os.sep))
+    return f"rag-mcp[{name}:{os.getpid()}]"
 
 
 def _display_path(path: str, project_root: str) -> str:
-    """Scaffold placeholder for root-relative path rendering (no rendering yet)."""
-    return path
+    """Render ``path`` relative to ``project_root`` when inside it, else absolute."""
+    root = os.path.realpath(project_root)
+    target = os.path.realpath(path)
+    rel = os.path.relpath(target, root)
+    if rel == os.curdir:
+        return os.curdir
+    if rel == os.pardir or rel.startswith(os.pardir + os.sep):
+        return target
+    return rel
+
+
+def _utc_timestamp() -> str:
+    """Current UTC time as ``YYYY-MM-DDTHH:MM:SS.mmmZ``."""
+    now = datetime.now(timezone.utc)
+    return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
 
 
 LOG_FILE_CAP_BYTES = 1_000_000
@@ -288,8 +303,8 @@ class _LogSink:
             print(text, file=sys.stderr)
 
     def emit(self, text: str) -> None:
-        """Write one line to stderr and append it to the log file."""
-        print(text, file=sys.stderr)
+        """Write one tagged line to stderr and append it to the log file."""
+        print(f"{self._tag} {text}", file=sys.stderr)
         with self._lock:
             if self._file is None:
                 return
@@ -298,7 +313,7 @@ class _LogSink:
                     self._file.close()
                     os.replace(self._path, self._path + LOG_FILE_BACKUP_SUFFIX)
                     self._file = open(self._path, "a", encoding="utf-8")
-                self._file.write(text + "\n")
+                self._file.write(f"{_utc_timestamp()} {self._tag} {text}\n")
                 self._file.flush()
             except Exception as exc:  # noqa: BLE001 — logging must never fail syncs
                 try:
@@ -397,7 +412,7 @@ def _watch_loop(
             + result.get("deleted", 0)
             > 0
         ):
-            _emit(sink, f"rag-mcp watch sync: {_format_sync_counts(result)}")
+            _emit(sink, f"watch sync: {_format_sync_counts(result)}")
 
 
 def _start_watcher(sync, interval: int, sink=None) -> None:
@@ -448,10 +463,17 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(1)
     store = VectorStore(persist_dir=config.chroma_persist_dir)
     sink = _LogSink(config.logging_path, _instance_tag(config))
+    ingest_display = (
+        _display_path(config.ingest_dir, config.project_root)
+        if config.ingest_dir
+        else "None"
+    )
+    _emit(sink, f"project='{config.project_root}'")
     _emit(
         sink,
-        f"rag-mcp start: persist_dir='{config.chroma_persist_dir}' "
-        f"ingest_dir='{config.ingest_dir}' "
+        f"start: persist_dir='"
+        f"{_display_path(config.chroma_persist_dir, config.project_root)}' "
+        f"ingest_dir='{ingest_display}' "
         f"collection='{config.ingest_collection}' "
         f"watch={config.ingest_watch} "
         f"watch_interval={config.ingest_watch_interval}",
@@ -467,7 +489,7 @@ def main(argv: list[str] | None = None) -> None:
             embeddings_model=config.embeddings_model,
             patterns=config.ingest_patterns,
         )
-        _emit(sink, f"rag-mcp startup sync: {_format_sync_counts(result)}")
+        _emit(sink, f"startup sync: {_format_sync_counts(result)}")
         if config.ingest_watch:
             _start_watcher(
                 _make_sync_fn(store, config),
@@ -477,7 +499,7 @@ def main(argv: list[str] | None = None) -> None:
     try:
         mcp.run()
     finally:
-        _emit(sink, f"rag-mcp shutdown: reason={shutdown_state['reason']}")
+        _emit(sink, f"shutdown: reason={shutdown_state['reason']}")
         sink.close()
 
 
