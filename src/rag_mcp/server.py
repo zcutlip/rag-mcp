@@ -279,7 +279,7 @@ class _LogSink:
     never fail server boot.
     """
 
-    def __init__(self, path: str | None, tag: str, pid: int | None = None) -> None:
+    def __init__(self, path: str | None, tag: str, pid: int) -> None:
         self._lock = threading.Lock()
         self._file = None
         self._path = path
@@ -314,7 +314,7 @@ class _LogSink:
                     self._file.close()
                     os.replace(self._path, self._path + LOG_FILE_BACKUP_SUFFIX)
                     self._file = open(self._path, "a", encoding="utf-8")
-                self._file.write(f"{_utc_timestamp()} {self._tag} {text}\n")
+                self._file.write(f"{_utc_timestamp()} pid={self._pid} {text}\n")
                 self._file.flush()
             except Exception as exc:  # noqa: BLE001 — logging must never fail syncs
                 try:
