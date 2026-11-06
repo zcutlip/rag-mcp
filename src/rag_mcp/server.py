@@ -279,11 +279,12 @@ class _LogSink:
     never fail server boot.
     """
 
-    def __init__(self, path: str | None, tag: str) -> None:
+    def __init__(self, path: str | None, tag: str, pid: int | None = None) -> None:
         self._lock = threading.Lock()
         self._file = None
         self._path = path
         self._tag = tag
+        self._pid = pid
         self._warned = False
         if path:
             try:
@@ -462,7 +463,7 @@ def main(argv: list[str] | None = None) -> None:
         )
         sys.exit(1)
     store = VectorStore(persist_dir=config.chroma_persist_dir)
-    sink = _LogSink(config.logging_path, _instance_tag(config))
+    sink = _LogSink(config.logging_path, _instance_tag(config), os.getpid())
     ingest_display = (
         _display_path(config.ingest_dir, config.project_root)
         if config.ingest_dir
