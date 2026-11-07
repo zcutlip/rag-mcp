@@ -720,8 +720,8 @@ def test_logging_non_table_raises(monkeypatch, tmp_path):
         config.load_config(environ={})
 
 
-def test_logging_enabled_defaults_to_true(monkeypatch, tmp_path):
-    """With no [logging] table, logging is enabled."""
+def test_logging_enabled_defaults_to_false(monkeypatch, tmp_path):
+    """With no [logging] table, logging is off — it is opt-in."""
     _no_default_config(monkeypatch, tmp_path)
     _no_project_config(monkeypatch, tmp_path)
     db = tmp_path / "db"
@@ -729,6 +729,33 @@ def test_logging_enabled_defaults_to_true(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
     cfg = config.load_config(environ={})
+    assert cfg.logging_enabled is False
+
+
+def test_logging_enabled_true_in_project_file(monkeypatch, tmp_path):
+    """[logging] enabled = true turns logging on."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    _write_project_config(
+        tmp_path,
+        f'[chroma]\npersist_dir = "{db}"\n[logging]\nenabled = true\n',
+    )
+    monkeypatch.chdir(tmp_path)
+
+    cfg = config.load_config(environ={})
+    assert cfg.logging_enabled is True
+
+
+def test_logging_enabled_env_enables_logging(monkeypatch, tmp_path):
+    """RAG_MCP_LOGGING_ENABLED=true turns logging on with no [logging] table."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    _write_project_config(tmp_path, f'[chroma]\npersist_dir = "{db}"\n')
+    monkeypatch.chdir(tmp_path)
+
+    cfg = config.load_config(environ={"RAG_MCP_LOGGING_ENABLED": "true"})
     assert cfg.logging_enabled is True
 
 
