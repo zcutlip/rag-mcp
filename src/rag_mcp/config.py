@@ -21,7 +21,7 @@ class Config:
     ingest_watch: bool = True
     ingest_watch_interval: int = 30
     logging_path: str = ".rag-mcp.log"
-    logging_enabled: bool = True
+    logging_enabled: bool = False
 
 
 DEFAULT_EMBEDDINGS_HOST = "http://localhost:11434"
@@ -320,7 +320,7 @@ def load_config(
     if logging_enabled_env is not None:
         logging_enabled = logging_enabled_env
     else:
-        logging_enabled_raw = logging_cfg.get("enabled", True)
+        logging_enabled_raw = logging_cfg.get("enabled", False)
         if not isinstance(logging_enabled_raw, bool):
             raise ValueError(
                 "logging.enabled must be a boolean: "
