@@ -279,12 +279,13 @@ class _LogSink:
     never fail server boot.
     """
 
-    def __init__(self, path: str | None, tag: str, pid: int) -> None:
+    def __init__(self, path: str | None, tag: str, pid: int, enabled: bool = True) -> None:
         self._lock = threading.Lock()
         self._file = None
         self._path = path
         self._tag = tag
         self._pid = pid
+        self._enabled = enabled
         self._warned = False
         if path:
             try:
