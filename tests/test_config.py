@@ -720,6 +720,95 @@ def test_logging_non_table_raises(monkeypatch, tmp_path):
         config.load_config(environ={})
 
 
+def test_logging_enabled_defaults_to_true(monkeypatch, tmp_path):
+    """With no [logging] table, logging is enabled."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    _write_project_config(tmp_path, f'[chroma]\npersist_dir = "{db}"\n')
+    monkeypatch.chdir(tmp_path)
+
+    cfg = config.load_config(environ={})
+    assert cfg.logging_enabled is True
+
+
+def test_logging_enabled_false_in_project_file(monkeypatch, tmp_path):
+    """[logging] enabled = false disables logging."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    _write_project_config(
+        tmp_path,
+        f'[chroma]\npersist_dir = "{db}"\n[logging]\nenabled = false\n',
+    )
+    monkeypatch.chdir(tmp_path)
+
+    cfg = config.load_config(environ={})
+    assert cfg.logging_enabled is False
+
+
+def test_logging_enabled_env_overrides_project_file(monkeypatch, tmp_path):
+    """RAG_MCP_LOGGING_ENABLED wins over the [logging] table, both ways."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    _write_project_config(
+        tmp_path,
+        f'[chroma]\npersist_dir = "{db}"\n[logging]\nenabled = false\n',
+    )
+    monkeypatch.chdir(tmp_path)
+
+    cfg = config.load_config(environ={"RAG_MCP_LOGGING_ENABLED": "true"})
+    assert cfg.logging_enabled is True
+
+    cfg = config.load_config(environ={"RAG_MCP_LOGGING_ENABLED": "false"})
+    assert cfg.logging_enabled is False
+
+
+def test_logging_enabled_env_overrides_enabled_project_file(monkeypatch, tmp_path):
+    """An env value of false disables logging even when the file enables it."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    _write_project_config(
+        tmp_path,
+        f'[chroma]\npersist_dir = "{db}"\n[logging]\nenabled = true\n',
+    )
+    monkeypatch.chdir(tmp_path)
+
+    cfg = config.load_config(environ={"RAG_MCP_LOGGING_ENABLED": "false"})
+    assert cfg.logging_enabled is False
+
+
+def test_logging_enabled_non_bool_toml_raises(monkeypatch, tmp_path):
+    """A non-boolean [logging] enabled raises ValueError naming logging.enabled."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    for bad in ('enabled = "yes"', "enabled = 0", "enabled = 1"):
+        _write_project_config(
+            tmp_path,
+            f'[chroma]\npersist_dir = "{db}"\n[logging]\n{bad}\n',
+        )
+        monkeypatch.chdir(tmp_path)
+
+        with pytest.raises(ValueError, match="logging.enabled"):
+            config.load_config(environ={})
+
+
+def test_logging_enabled_env_invalid_raises(monkeypatch, tmp_path):
+    """An env value other than true/false raises ValueError naming the env var."""
+    _no_default_config(monkeypatch, tmp_path)
+    _no_project_config(monkeypatch, tmp_path)
+    db = tmp_path / "db"
+    _write_project_config(tmp_path, f'[chroma]\npersist_dir = "{db}"\n')
+    monkeypatch.chdir(tmp_path)
+
+    for bad in ("yes", "", "0", "1", "maybe"):
+        with pytest.raises(ValueError, match="RAG_MCP_LOGGING_ENABLED"):
+            config.load_config(environ={"RAG_MCP_LOGGING_ENABLED": bad})
+
+
 def test_project_root_is_config_directory(monkeypatch, tmp_path):
     """The project root is the directory holding the discovered .rag-mcp.toml."""
     _no_default_config(monkeypatch, tmp_path)
