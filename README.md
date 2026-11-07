@@ -103,6 +103,8 @@ collection = "default"
 # watch_interval = 30    # seconds between re-syncs
 
 [logging]
+# Lifecycle logging is opt-in: enabled = true turns it on (off by default).
+# enabled = true
 # path = "./.rag-mcp.log"   # project-local log file (default shown)
 ```
 
@@ -126,11 +128,20 @@ must be set in `.rag-mcp.toml` or via `RAG_MCP_CHROMA_PERSIST_DIR`.
 | `RAG_MCP_INGEST_WATCH` | `true` | Enable (`true`) or disable (`false`) continuous background re-sync; strict bool, only `true`/`false` accepted |
 | `RAG_MCP_INGEST_WATCH_INTERVAL` | `30` | Seconds between background re-syncs; positive integer |
 | `RAG_MCP_LOGGING_PATH` | `<project root>/.rag-mcp.log` | Project-local log file path; relative resolves inside the project root |
+| `RAG_MCP_LOGGING_ENABLED` | `false` | Turn lifecycle logging on (`true`) or off (`false`); strict bool, only `true`/`false` accepted. Overrides `[logging] enabled` |
 
 ## Logging
 
-Every lifecycle event is one line, written to stderr and appended to a
-project-local log file:
+Lifecycle logging is **off by default**. Turn it on per project with
+`[logging] enabled = true` in `.rag-mcp.toml`, or per run with
+`RAG_MCP_LOGGING_ENABLED=true`. While it is off, the server writes no log
+file and emits no lifecycle lines — including `watch sync failed:`, so a
+broken watcher stays invisible until you turn logging on. Config errors and
+the zero-match `ingest.patterns` warning still go to stderr, since those are
+diagnostics rather than lifecycle events.
+
+With logging on, every lifecycle event is one line, written to stderr and
+appended to a project-local log file:
 
 ```text
 # stderr

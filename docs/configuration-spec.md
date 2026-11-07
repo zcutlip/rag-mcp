@@ -50,6 +50,7 @@ per-project data settings, with `RAG_MCP_*` env vars as overrides.
 | `persist_dir` missing | Fail fast |
 | Discovery mechanism | Cwd walk-up only (no explicit env var) |
 | `[logging] path` | Project-local only; default `<root>/.rag-mcp.log`; env override `RAG_MCP_LOGGING_PATH`; relative resolves against the project root and must stay within it |
+| `[logging] enabled` | Project-local only; default `false` — lifecycle logging is opt-in; env override `RAG_MCP_LOGGING_ENABLED` |
 | Global `[logging]` | `ValueError` — unlike `[chroma]`/`[ingest]`, which are ignored in the global file |
 
 ## Config files
@@ -85,6 +86,8 @@ collection = "default"
 # watch_interval = 30    # seconds between re-syncs
 
 [logging]
+# Lifecycle logging is opt-in (off by default).
+# enabled = true
 # path = "./.rag-mcp.log"   # project-local log file (default shown)
 ```
 
@@ -105,6 +108,7 @@ accepted. Add `.chroma/` (or whatever you chose) to `.gitignore`.
 | `RAG_MCP_INGEST_WATCH` | `ingest.watch` (project only) |
 | `RAG_MCP_INGEST_WATCH_INTERVAL` | `ingest.watch_interval` (project only) |
 | `RAG_MCP_LOGGING_PATH` | `logging.path` (project only) |
+| `RAG_MCP_LOGGING_ENABLED` | `logging.enabled` (project only) |
 
 Precedence: defaults < global `<embeddings>` < project file < env vars.
 
@@ -121,6 +125,7 @@ Precedence: defaults < global `<embeddings>` < project file < env vars.
 - `ingest.watch` — optional bool, project-local only, default `true`; TOML accepts a bool only (`"yes"`, `0`, strings → `ValueError` naming `ingest.watch`); env accepts only `true`/`false` case-insensitive (anything else, including empty string → `ValueError` naming `RAG_MCP_INGEST_WATCH`)
 - `ingest.watch_interval` — optional int, project-local only, default `30`; must be a positive integer (zero, negative, non-int, float → `ValueError`); env must parse to a positive integer; both TOML- and env-originated errors report `ingest.watch_interval`
 - `logging.path` — optional non-empty string, project-local only, default `<root>/.rag-mcp.log`; `~`-expanded; relative paths resolve against the project root and must stay within it; non-table `logging` and `[logging]` in the global file → `ValueError`
+- `logging.enabled` — optional bool, project-local only, default `false` (logging is opt-in); TOML accepts a bool only (`"yes"`, `0`, strings → `ValueError` naming `logging.enabled`); env accepts only `true`/`false` case-insensitive (anything else, including empty string → `ValueError` naming `RAG_MCP_LOGGING_ENABLED`)
 - Global file: invalid TOML → `ValueError` naming the path; `RAG_MCP_CONFIG`
   set to a missing file → `ValueError`
 - Project file: invalid TOML → `ValueError` naming the path
