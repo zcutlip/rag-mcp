@@ -56,7 +56,7 @@ observability stays exactly as silent as before.
 | Thread safety | One lock per sink serializes writes from the server thread and the watcher thread |
 | Multi-process | Concurrent children append to the same file; interleaving at append granularity is accepted. This is diagnostic evidence, not a mitigation — see issue #5 |
 | Construction site | The sink is created in `main()` only, never at module import (same import-safety rule as the watcher) |
-| Sink shape | `_LogSink(path, tag, pid, enabled=False)`. With `enabled=False` the constructor opens no file and `emit()` returns immediately, so a disabled run writes nothing and leaves no artifact; `_emit(sink, body)` keeps its existing one call path |
+| Sink shape | `_LogSink(path, tag, pid, enabled=True)`. The sink's own parameter default is `True` — the opt-in lives in the config default, and `main()` always passes `config.logging_enabled` explicitly. With `enabled=False` the constructor opens no file and `emit()` returns immediately, so a disabled run writes nothing and leaves no artifact; `_emit(sink, body)` keeps its existing one call path |
 | Error policy | Unchanged: a failed tick emits `watch sync failed: {exc!r}`, no traceback, loop retries next tick. `BaseException` is still not caught |
 | Shutdown reason | `reason=exit` normally; `reason=SIGTERM` when SIGTERM was received (handler raises `SystemExit(128 + signum)`). Only SIGKILL is silent |
 
@@ -251,3 +251,6 @@ signature keeps its defaulted parameter, so no scaffold step is required.
   strict bool validation, and the disabled semantics are unchanged; only the
   default moves. Supersedes the default recorded in Amendment 4 and restates
   design principle 1 as "off by default" rather than "quiet by default".
+  Corrects the Sink shape row in the same change: it had claimed the sink's
+  parameter default is `False`. It is `True` — the opt-in lives in the config
+  default, and `main()` passes `config.logging_enabled` through explicitly.
