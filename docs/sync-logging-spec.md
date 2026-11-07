@@ -1,7 +1,7 @@
 # Sync Logging Spec
 
 Issue: #6
-Status: design agreed — Amendment 4 (`[logging] enabled`) pending review
+Status: design agreed — Amendment 5 (logging off by default) pending review
 Branch: dev/6-sync-logging (created with `scripts/issue-branch create feature 6 sync-logging`)
 
 ## Objective
@@ -12,14 +12,17 @@ only evidence of an auto-ingest is a later query returning the right
 documents. Every lifecycle event — start, startup sync, changing tick,
 failed tick, shutdown — is emitted as one line, to stderr and to a
 project-local log file, so the operator can tell what the server resolved,
-what it synced, and why it stopped.
+what it synced, and why it stopped. The lines are opt-in per project
+(`[logging] enabled`, default off), so an install that did not ask for
+observability stays exactly as silent as before.
 
 ## Design principles
 
-1. **Silence means idle, not broken.** A tick that changed nothing prints
-   nothing. This is what keeps a 5-second `watch_interval` tolerable; the
-   "quiet by default" constraint is enforced structurally, not by a
-   verbosity flag.
+1. **Silence is the default; logging is opt-in.** A tick that changed nothing
+   prints nothing, and an unconfigured server prints nothing at all: the
+   `[logging] enabled` switch defaults to `false`. The operator asks for
+   observability per project, and what they get is exactly the lines they
+   asked for — no verbosity levels, no partial modes.
 2. **Two sinks, one source of truth.** Each line goes to stderr (immediate,
    inherited by the launching client) and is appended to a project-local
    file (durable, per-project, greppable after the fact). One sink object
@@ -45,15 +48,15 @@ what it synced, and why it stopped.
 | Project root | Directory containing the discovered `.rag-mcp.toml`; the process cwd when no project file exists. Stored on `Config` so the tag and path rendering never re-derive it |
 | Path rendering | A path inside the project root prints relative to it (`docs`, `.chroma`); a path outside prints absolute. Never `..`, never a `./` prefix |
 | Log file path | `[logging] path` in `.rag-mcp.toml`, default `.rag-mcp.log` at the project root, env override `RAG_MCP_LOGGING_PATH`; relative resolves against the project root and must stay within it, absolute is used as-is |
-| Enabled switch | `[logging] enabled` in `.rag-mcp.toml`, default `true`, env override `RAG_MCP_LOGGING_ENABLED`. Strict bool like `ingest.watch`: TOML accepts a boolean only, env accepts `true`/`false` case-insensitive, anything else (including empty string) raises `ValueError` naming the key |
-| Disabled semantics | `false` disables the sink entirely: no stderr lifecycle line, no file opened (so no rotation or warn), no emit calls from `main()` or the watcher. Off means off on both channels — it does not silence non-logging diagnostics, which stay on stderr: the zero-match `ingest.patterns` warning and fatal config errors |
+| Enabled switch | `[logging] enabled` in `.rag-mcp.toml`, default `false`, env override `RAG_MCP_LOGGING_ENABLED`. Strict bool like `ingest.watch`: TOML accepts a boolean only, env accepts `true`/`false` case-insensitive, anything else (including empty string) raises `ValueError` naming the key. Logging is opt-in: an unconfigured server emits nothing and creates no file |
+| Disabled semantics | `false` (the default) disables the sink entirely: no stderr lifecycle line, no file opened (so no rotation or warn), no emit calls from `main()` or the watcher. Off means off on both channels — it does not silence non-logging diagnostics, which stay on stderr: the zero-match `ingest.patterns` warning and fatal config errors |
 | `[logging]` placement | Project-local only. `[logging]` in the global `config.toml` raises `ValueError` |
 | Rotation | 1 MB cap checked before each write; the full file rotates to `<path>.1` (single backup, overwritten) |
 | File unavailable | One `rag-mcp log file unavailable: <exc!r> (continuing stderr-only)` warning, then stderr-only for the process lifetime |
 | Thread safety | One lock per sink serializes writes from the server thread and the watcher thread |
 | Multi-process | Concurrent children append to the same file; interleaving at append granularity is accepted. This is diagnostic evidence, not a mitigation — see issue #5 |
 | Construction site | The sink is created in `main()` only, never at module import (same import-safety rule as the watcher) |
-| Sink shape | `_LogSink(path, tag, pid, enabled=True)`. With `enabled=False` the constructor opens no file and `emit()` returns immediately, so a disabled run writes nothing and leaves no artifact; `_emit(sink, body)` keeps its existing one call path |
+| Sink shape | `_LogSink(path, tag, pid, enabled=False)`. With `enabled=False` the constructor opens no file and `emit()` returns immediately, so a disabled run writes nothing and leaves no artifact; `_emit(sink, body)` keeps its existing one call path |
 | Error policy | Unchanged: a failed tick emits `watch sync failed: {exc!r}`, no traceback, loop retries next tick. `BaseException` is still not caught |
 | Shutdown reason | `reason=exit` normally; `reason=SIGTERM` when SIGTERM was received (handler raises `SystemExit(128 + signum)`). Only SIGKILL is silent |
 
@@ -72,8 +75,8 @@ what it synced, and why it stopped.
 
 `ingest_dir` renders as `None` when no ingest directory is configured.
 
-When `[logging] enabled` is false, none of these lines is emitted on either
-channel and no log file is created.
+When `[logging] enabled` is false — the default — none of these lines is
+emitted on either channel and no log file is created.
 
 ### Example (stderr, project `platform-security-guide-scraper`)
 
@@ -163,11 +166,12 @@ them. Running two sessions against one project remains unsupported for writes
 
 ## Test plan (flat style, tests as locked contract)
 
-Status: Amendments 1–3 are implemented and committed (`b9a05f8`, `adcce5d`,
-`b898725`, plus the file-prefix GREEN); the suite pins tagged stderr lines,
-`pid=` file lines, the `project=` line, relative path rendering, and
-file-only timestamps. Amendment 4 adds a defaulted `enabled` parameter, so
-existing call sites keep collecting and no scaffold step is required.
+Status: Amendments 1–4 are implemented and committed; the suite pins tagged
+stderr lines, `pid=` file lines, the `project=` line, relative path
+rendering, file-only timestamps, and the `[logging] enabled` switch.
+Amendment 5 flips that switch's default to `false`, so the RED amendment
+changes one default assertion and adds one env-enables case; the sink
+signature keeps its defaulted parameter, so no scaffold step is required.
 
 - `test_config.py`
   - `project_root` is the `.rag-mcp.toml` directory; cwd when no project file
@@ -175,10 +179,11 @@ existing call sites keep collecting and no scaffold step is required.
     absolute used as-is; env overrides `[logging]`; escaping relative path
     raises; empty/non-string raises naming `logging.path`; `[logging]` in the
     global file raises; non-table `logging` raises
-  - `logging_enabled` defaults to `true`; `[logging] enabled = false` disables;
-    env `RAG_MCP_LOGGING_ENABLED` overrides both ways; TOML non-bool and env
-    values other than `true`/`false` (including empty) raise naming
-    `logging.enabled` / `RAG_MCP_LOGGING_ENABLED`
+  - `logging_enabled` defaults to `false`; `[logging] enabled = true` enables;
+    env `RAG_MCP_LOGGING_ENABLED` overrides both ways (including enabling
+    logging that the file left off); TOML non-bool and env values other than
+    `true`/`false` (including empty) raise naming `logging.enabled` /
+    `RAG_MCP_LOGGING_ENABLED`
 - `test_server.py`
   - `_instance_tag()` → `rag-mcp[<basename>:<pid>]`
   - `_display_path()`: inside root → relative without `./`; outside → absolute;
@@ -240,3 +245,9 @@ existing call sites keep collecting and no scaffold step is required.
   artifact; non-logging diagnostics (the zero-match `ingest.patterns` warning,
   fatal config errors) are unaffected. Supersedes the out-of-scope note that
   said no logging knob exists.
+- **Amendment 5** (this change, awaiting approval): flips `[logging] enabled`
+  from default `true` to default `false` — logging is opt-in per project, so
+  an unconfigured server is silent and creates no file. The switch, its
+  strict bool validation, and the disabled semantics are unchanged; only the
+  default moves. Supersedes the default recorded in Amendment 4 and restates
+  design principle 1 as "off by default" rather than "quiet by default".
