@@ -21,6 +21,7 @@ class Config:
     ingest_watch: bool = True
     ingest_watch_interval: int = 30
     logging_path: str = ".rag-mcp.log"
+    logging_enabled: bool = True
 
 
 DEFAULT_EMBEDDINGS_HOST = "http://localhost:11434"
