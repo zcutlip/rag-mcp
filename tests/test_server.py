@@ -691,6 +691,51 @@ def test_log_sink_unavailable_path_warns_once_and_keeps_stderr(tmp_path, capsys)
     assert "second" in captured.err
 
 
+def test_log_sink_disabled_writes_nothing(tmp_path, capsys):
+    """A disabled sink emits nothing on either channel and creates no file."""
+    from rag_mcp.server import _LogSink
+
+    log_path = tmp_path / "rag.log"
+    sink = _LogSink(str(log_path), "rag-mcp[proj:123]", 4242, enabled=False)
+    try:
+        sink.emit("start: disabled")
+    finally:
+        sink.close()
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+    assert not log_path.exists()
+
+
+@patch("rag_mcp.server.get_config")
+@patch("rag_mcp.server.VectorStore")
+@patch("rag_mcp.server.mcp.run")
+@patch("rag_mcp.server.ingest.sync_directory")
+def test_main_with_logging_disabled_emits_nothing(
+    mock_sync, mock_run, mock_vectorstore, mock_get_config, tmp_path, capsys
+):
+    """With logging_enabled=False, main() writes no line to stderr and creates no file."""
+    log_path = tmp_path / "rag.log"
+    cfg = _test_config()
+    cfg.logging_enabled = False
+    cfg.logging_path = str(log_path)
+    cfg.project_root = str(tmp_path)
+    cfg.ingest_dir = None
+    cfg.ingest_watch = False
+    cfg.ingest_watch_interval = 30
+    mock_get_config.return_value = cfg
+
+    from rag_mcp.server import main
+
+    main([])
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+    assert not log_path.exists()
+
+
 def test_install_sigterm_handler_records_reason_and_exits():
     """The SIGTERM handler records the reason and exits with 128+signum."""
     from rag_mcp import server
