@@ -287,7 +287,7 @@ class _LogSink:
         self._pid = pid
         self._enabled = enabled
         self._warned = False
-        if path:
+        if path and enabled:
             try:
                 parent = os.path.dirname(path)
                 if parent:
@@ -306,6 +306,8 @@ class _LogSink:
 
     def emit(self, text: str) -> None:
         """Write one tagged line to stderr and append it to the log file."""
+        if not self._enabled:
+            return
         print(f"{self._tag} {text}", file=sys.stderr)
         with self._lock:
             if self._file is None:
@@ -464,7 +466,12 @@ def main(argv: list[str] | None = None) -> None:
         )
         sys.exit(1)
     store = VectorStore(persist_dir=config.chroma_persist_dir)
-    sink = _LogSink(config.logging_path, _instance_tag(config), os.getpid())
+    sink = _LogSink(
+        config.logging_path,
+        _instance_tag(config),
+        os.getpid(),
+        enabled=bool(config.logging_enabled),
+    )
     ingest_display = (
         _display_path(config.ingest_dir, config.project_root)
         if config.ingest_dir

@@ -108,6 +108,26 @@ def _parse_watch_bool(environ: Mapping[str, str]) -> bool | None:
     )
 
 
+def _parse_logging_enabled_bool(environ: Mapping[str, str]) -> bool | None:
+    """Parse the ``RAG_MCP_LOGGING_ENABLED`` env override.
+
+    Returns ``None`` when the variable is unset. Accepts only
+    ``true``/``false`` (case-insensitive); anything else — including the
+    empty string — is a ``ValueError``.
+    """
+    raw = environ.get("RAG_MCP_LOGGING_ENABLED")
+    if raw is None:
+        return None
+    lowered = raw.lower()
+    if lowered == "true":
+        return True
+    if lowered == "false":
+        return False
+    raise ValueError(
+        f"RAG_MCP_LOGGING_ENABLED must be 'true' or 'false', got: {raw!r}"
+    )
+
+
 def _parse_watch_interval(
     raw: str | int, source: str
 ) -> int:
@@ -294,6 +314,20 @@ def load_config(
         project_root if project_root is not None else os.getcwd(),
     )
 
+    # Logging enabled: project-local [logging] enabled plus env override. The
+    # env override wins; both sides accept only a strict boolean.
+    logging_enabled_env = _parse_logging_enabled_bool(environ)
+    if logging_enabled_env is not None:
+        logging_enabled = logging_enabled_env
+    else:
+        logging_enabled_raw = logging_cfg.get("enabled", True)
+        if not isinstance(logging_enabled_raw, bool):
+            raise ValueError(
+                "logging.enabled must be a boolean: "
+                f"{logging_enabled_raw!r}"
+            )
+        logging_enabled = logging_enabled_raw
+
     _validate_host(embeddings_host)
     if not embeddings_model or not embeddings_model.strip():
         raise ValueError("embeddings.model must be a non-empty string")
@@ -320,6 +354,7 @@ def load_config(
         ingest_watch=ingest_watch,
         ingest_watch_interval=ingest_watch_interval,
         logging_path=logging_path,
+        logging_enabled=logging_enabled,
     )
 
 
