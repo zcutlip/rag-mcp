@@ -1,7 +1,7 @@
 # Sync Logging Spec
 
 Issue: #6
-Status: design agreed — Amendment 3 (file prefix) pending review
+Status: design agreed — Amendment 4 (`[logging] enabled`) pending review
 Branch: dev/6-sync-logging (created with `scripts/issue-branch create feature 6 sync-logging`)
 
 ## Objective
@@ -45,12 +45,15 @@ what it synced, and why it stopped.
 | Project root | Directory containing the discovered `.rag-mcp.toml`; the process cwd when no project file exists. Stored on `Config` so the tag and path rendering never re-derive it |
 | Path rendering | A path inside the project root prints relative to it (`docs`, `.chroma`); a path outside prints absolute. Never `..`, never a `./` prefix |
 | Log file path | `[logging] path` in `.rag-mcp.toml`, default `.rag-mcp.log` at the project root, env override `RAG_MCP_LOGGING_PATH`; relative resolves against the project root and must stay within it, absolute is used as-is |
+| Enabled switch | `[logging] enabled` in `.rag-mcp.toml`, default `true`, env override `RAG_MCP_LOGGING_ENABLED`. Strict bool like `ingest.watch`: TOML accepts a boolean only, env accepts `true`/`false` case-insensitive, anything else (including empty string) raises `ValueError` naming the key |
+| Disabled semantics | `false` disables the sink entirely: no stderr lifecycle line, no file opened (so no rotation or warn), no emit calls from `main()` or the watcher. Off means off on both channels — it does not silence non-logging diagnostics, which stay on stderr: the zero-match `ingest.patterns` warning and fatal config errors |
 | `[logging]` placement | Project-local only. `[logging]` in the global `config.toml` raises `ValueError` |
 | Rotation | 1 MB cap checked before each write; the full file rotates to `<path>.1` (single backup, overwritten) |
 | File unavailable | One `rag-mcp log file unavailable: <exc!r> (continuing stderr-only)` warning, then stderr-only for the process lifetime |
 | Thread safety | One lock per sink serializes writes from the server thread and the watcher thread |
 | Multi-process | Concurrent children append to the same file; interleaving at append granularity is accepted. This is diagnostic evidence, not a mitigation — see issue #5 |
 | Construction site | The sink is created in `main()` only, never at module import (same import-safety rule as the watcher) |
+| Sink shape | `_LogSink(path, tag, pid, enabled=True)`. With `enabled=False` the constructor opens no file and `emit()` returns immediately, so a disabled run writes nothing and leaves no artifact; `_emit(sink, body)` keeps its existing one call path |
 | Error policy | Unchanged: a failed tick emits `watch sync failed: {exc!r}`, no traceback, loop retries next tick. `BaseException` is still not caught |
 | Shutdown reason | `reason=exit` normally; `reason=SIGTERM` when SIGTERM was received (handler raises `SystemExit(128 + signum)`). Only SIGKILL is silent |
 
@@ -68,6 +71,9 @@ what it synced, and why it stopped.
 | Shutdown | `shutdown: reason=exit\|SIGTERM` | once per run, from a `finally` around `mcp.run()` |
 
 `ingest_dir` renders as `None` when no ingest directory is configured.
+
+When `[logging] enabled` is false, none of these lines is emitted on either
+channel and no log file is created.
 
 ### Example (stderr, project `platform-security-guide-scraper`)
 
@@ -115,28 +121,32 @@ in either channel, and a `pid=<n>` grep selects one instance across both.
 
 ### In scope
 
-- `config.py`: `Config.logging_path` and `Config.project_root`; `[logging] path`
-  parsing with `RAG_MCP_LOGGING_PATH` override; project-root resolution and
-  subpath constraint; rejection of `[logging]` in the global file and of a
-  non-table `logging` key; validation of empty/non-string paths.
+- `config.py`: `Config.logging_path`, `Config.logging_enabled` and
+  `Config.project_root`; `[logging] path` parsing with `RAG_MCP_LOGGING_PATH`
+  override; `[logging] enabled` parsing with `RAG_MCP_LOGGING_ENABLED` and
+  strict bool validation; project-root resolution and subpath constraint;
+  rejection of `[logging]` in the global file and of a non-table `logging`
+  key; validation of empty/non-string paths.
 - `server.py`: `_LogSink` (stderr + append, rotation, warn-once degrade,
-  close), `_emit()` (sink-or-stderr), `_format_sync_counts()`,
-  `_instance_tag(config)`, `_display_path(path, root)`,
+  close, `enabled=False` no-op), `_emit()` (sink-or-stderr),
+  `_format_sync_counts()`, `_instance_tag(config)`, `_display_path(path, root)`,
   `_install_sigterm_handler(state)`; `_make_sync_fn` returns the sync result;
   `_watch_loop`/`_start_watcher` take an optional sink; `main()` emits
-  project/start/startup-sync/shutdown lines around `mcp.run()`.
-- Tests: `test_config.py` (project root, logging path resolution/validation),
-  `test_server.py` (tag, project line, start/startup/shutdown lines, path
-  rendering, sink behavior including timestamp and rotation),
-  `test_ingest_watch.py` (tagged tick line, gated idle ticks, unchanged
-  failure text, sink forwarding).
+  project/start/startup-sync/shutdown lines around `mcp.run()` and passes
+  `logging_enabled` to the sink.
+- Tests: `test_config.py` (project root, logging path resolution/validation,
+  `[logging] enabled` parsing and strictness), `test_server.py` (tag, project
+  line, start/startup/shutdown lines, path rendering, sink behavior including
+  timestamp, rotation, and the disabled no-op), `test_ingest_watch.py`
+  (tagged tick line, gated idle ticks, unchanged failure text, sink
+  forwarding).
 
 ### Out of scope
 
 - MCP log notifications (`notifications/message`): deprecated by the spec and
   unusable from the watcher thread.
-- Log levels or a verbosity flag: quiet-by-default is structural (idle ticks
-  are silent), so no knob is needed.
+- Log levels: `[logging] enabled` is a single on/off switch, not a severity
+  knob. Quiet-by-default remains structural (idle ticks are silent).
 - Fixing concurrent-writer corruption (issue #5). This spec only makes
   concurrent children visible; it does not mediate between them.
 - Log shipping, structured/JSON output, per-line rotation checks beyond the
@@ -153,10 +163,11 @@ them. Running two sessions against one project remains unsupported for writes
 
 ## Test plan (flat style, tests as locked contract)
 
-Status: the three committed test files pin the pre-amendment format (no tag,
-no PID, no project line, absolute paths, no timestamps). They are amended
-before implementation, and the suite must go red against the committed
-implementation first.
+Status: Amendments 1–3 are implemented and committed (`b9a05f8`, `adcce5d`,
+`b898725`, plus the file-prefix GREEN); the suite pins tagged stderr lines,
+`pid=` file lines, the `project=` line, relative path rendering, and
+file-only timestamps. Amendment 4 adds a defaulted `enabled` parameter, so
+existing call sites keep collecting and no scaffold step is required.
 
 - `test_config.py`
   - `project_root` is the `.rag-mcp.toml` directory; cwd when no project file
@@ -164,6 +175,10 @@ implementation first.
     absolute used as-is; env overrides `[logging]`; escaping relative path
     raises; empty/non-string raises naming `logging.path`; `[logging]` in the
     global file raises; non-table `logging` raises
+  - `logging_enabled` defaults to `true`; `[logging] enabled = false` disables;
+    env `RAG_MCP_LOGGING_ENABLED` overrides both ways; TOML non-bool and env
+    values other than `true`/`false` (including empty) raise naming
+    `logging.enabled` / `RAG_MCP_LOGGING_ENABLED`
 - `test_server.py`
   - `_instance_tag()` → `rag-mcp[<basename>:<pid>]`
   - `_display_path()`: inside root → relative without `./`; outside → absolute;
@@ -174,6 +189,9 @@ implementation first.
   - no startup sync line without an ingest dir
   - sink: stderr `<tag> <body>` + file `<timestamp> pid=<pid> <body>`, rotation
     at cap, warn-once degrade to stderr, close on shutdown
+  - disabled sink: `emit()` writes nothing to either channel and no file is
+    created at a writable path; `main()` with `logging_enabled=False` emits no
+    lines
 - `test_ingest_watch.py`
   - changed tick emits exactly one tagged line with counts
   - idle ticks emit nothing
@@ -208,10 +226,17 @@ implementation first.
   not by individual emit sites. Callers pass bare bodies, so the failure line
   stays byte-for-byte unchanged and its test remains an exact assertion. The
   test-plan line was corrected to match; no observable format change.
-- **Amendment 3** (this change, awaiting approval): the file prefix is reduced to
+- **Amendment 3** (approved, committed): the file prefix is reduced to
   `<ISO timestamp> pid=<pid> ` — `rag-mcp` and the project name are redundant in
   a per-project, tool-named file, while the PID remains the only way to
   attribute a line to one of several sessions appending to it. The sink becomes
   `_LogSink(path, tag, pid)` and renders each channel's prefix itself; stderr is
   unchanged. Supersedes the file-prefix rule in Amendment 2 and the single-prefix
   wording of the Channels and Prefix application rows, plus the File form section.
+- **Amendment 4** (this change, awaiting approval): adds `[logging] enabled`
+  (project-local, default `true`, env `RAG_MCP_LOGGING_ENABLED`, strict bool,
+  validated like `ingest.watch`) and a defaulted `enabled` parameter on
+  `_LogSink`. Off suppresses both channels, opens no file, and leaves no
+  artifact; non-logging diagnostics (the zero-match `ingest.patterns` warning,
+  fatal config errors) are unaffected. Supersedes the out-of-scope note that
+  said no logging knob exists.
