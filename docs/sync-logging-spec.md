@@ -1,7 +1,7 @@
 # Sync Logging Spec
 
 Issue: #6
-Status: design agreed — Amendment 5 (logging off by default) pending review
+Status: implementation complete — Amendments 1–5 approved and committed; suite 183/183 green (2026-11-07); user-facing docs complete and committed; remaining: commit these spec status updates, then `scripts/issue-branch finish` (merge + tag)
 Branch: dev/6-sync-logging (created with `scripts/issue-branch create feature 6 sync-logging`)
 
 ## Objective
@@ -166,12 +166,12 @@ them. Running two sessions against one project remains unsupported for writes
 
 ## Test plan (flat style, tests as locked contract)
 
-Status: Amendments 1–4 are implemented and committed; the suite pins tagged
+Status: Amendments 1–5 are implemented and committed; the suite pins tagged
 stderr lines, `pid=` file lines, the `project=` line, relative path
-rendering, file-only timestamps, and the `[logging] enabled` switch.
-Amendment 5 flips that switch's default to `false`, so the RED amendment
-changes one default assertion and adds one env-enables case; the sink
-signature keeps its defaulted parameter, so no scaffold step is required.
+rendering, file-only timestamps, and the `[logging] enabled` switch
+(default off, opt-in via the project file or the env var). Amendment 5's RED
+changed one default assertion and added one env-enables case; its GREEN
+flipped the config default and the suite stands at 183/183 green.
 
 - `test_config.py`
   - `project_root` is the `.rag-mcp.toml` directory; cwd when no project file
@@ -207,21 +207,23 @@ signature keeps its defaulted parameter, so no scaffold step is required.
 ## Process
 
 1. Branch: `scripts/issue-branch create feature 6 sync-logging` (done)
-2. Spec written (this file) → user review/approval gate
+2. Spec written (this file) → user review/approval gate (done)
 3. Scaffold → already satisfied by the committed implementation `30ab67d`:
    the helpers the amended tests name (`_instance_tag`, `_display_path`,
    `_LogSink`, `Config.project_root`) exist or are part of this amendment, so
    no structural gap prevents the tests from expressing themselves. Any gap
    found at amendment time is a spec amendment first, never invented in code.
-4. Test amendment → RED re-entry → user review/approval gate
-5. GREEN implementation → user review gate
+   (done)
+4. Test amendment → RED re-entry → user review/approval gate (done)
+5. GREEN implementation → user review gate (done)
 6. Docs: README, `docs/configuration-spec.md`, `AGENTS.md`; align
    `docs/watch-mode-spec.md` lines 41 and 126 with this spec → user review gate
-7. User reviews, commits, finishes (`scripts/issue-branch finish`)
+   (done)
+7. User reviews, commits, finishes (`scripts/issue-branch finish`) — remaining
 
 ## Amendment ledger
 
-- **Amendment 1** (this file, awaiting approval): the format agreed after the
+- **Amendment 1** (approved, committed): the format agreed after the
   GREEN commit — project tag with PID on every line, `project=` line,
   root-relative path rendering, file-only timestamps, and `Config.project_root`
   as the anchor. Supersedes the untagged format pinned by commits `d6fb84c`,
@@ -238,14 +240,14 @@ signature keeps its defaulted parameter, so no scaffold step is required.
   `_LogSink(path, tag, pid)` and renders each channel's prefix itself; stderr is
   unchanged. Supersedes the file-prefix rule in Amendment 2 and the single-prefix
   wording of the Channels and Prefix application rows, plus the File form section.
-- **Amendment 4** (this change, awaiting approval): adds `[logging] enabled`
+- **Amendment 4** (approved, committed): adds `[logging] enabled`
   (project-local, default `true`, env `RAG_MCP_LOGGING_ENABLED`, strict bool,
   validated like `ingest.watch`) and a defaulted `enabled` parameter on
   `_LogSink`. Off suppresses both channels, opens no file, and leaves no
   artifact; non-logging diagnostics (the zero-match `ingest.patterns` warning,
   fatal config errors) are unaffected. Supersedes the out-of-scope note that
   said no logging knob exists.
-- **Amendment 5** (this change, awaiting approval): flips `[logging] enabled`
+- **Amendment 5** (approved, committed): flips `[logging] enabled`
   from default `true` to default `false` — logging is opt-in per project, so
   an unconfigured server is silent and creates no file. The switch, its
   strict bool validation, and the disabled semantics are unchanged; only the
