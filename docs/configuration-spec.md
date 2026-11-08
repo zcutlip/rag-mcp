@@ -1,5 +1,7 @@
 # Configuration Spec
 
+Status: shipped — the two-file model and the `[embeddings]` rename released in 1.0.0 (2026-08-19); `ingest.patterns` in 2.1.0, `[ingest] watch`/`watch_interval` in 2.2.0, and `[logging] path`/`enabled` with issue #6 (on `dev/6-sync-logging`, unreleased)
+
 ## Objective
 
 Provide a strict, project-isolated configuration model that prevents
@@ -165,7 +167,7 @@ Precedence: defaults < global `<embeddings>` < project file < env vars.
 
 ## Tests (TDD)
 
-`test_config.py` grew from 10 to 23 tests:
+`test_config.py` grew from 10 to 23 tests at the time of this spec:
 
 - Defaults with project file providing `persist_dir`
 - Missing `persist_dir` raises
@@ -193,7 +195,8 @@ Precedence: defaults < global `<embeddings>` < project file < env vars.
 
 ## Acceptance criteria
 
-- `pytest` passes (46 tests total).
+- `pytest` passes (46 tests total at the time of this spec; the suite now
+  stands at 183, including the logging tests added by issue #6).
 - `pre-commit run --all-files` passes.
 - `python -m rag_mcp.server` with no project file and no relevant env
   vars exits with a clear `ValueError` before `mcp.run()`.
