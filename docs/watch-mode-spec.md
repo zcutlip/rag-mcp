@@ -1,7 +1,7 @@
 # Ingest Watch Mode Spec
 
 Issue: #1
-Status: implementation complete — RED → GREEN closed, suite 144/144 green (2026-10-19); docs in progress; awaiting commit/review/release
+Status: released in 2.2.0 (2026-11-02) — RED → GREEN closed, shipped as `v2.2.0`; the suite has since grown to 183/183 green with the logging feature (issue #6) and the opt-in default
 Branch: dev/1-watch-mode (created with `scripts/issue-branch create feature 1 watch-mode`, dev version 2.2.0.dev1+issue-1-watch-mode)
 
 ## Objective
@@ -100,11 +100,11 @@ documented future mitigations.
 
 ## Test plan (RED, flat style, tests as locked contract)
 
-Status: **RED established** — 15 contract-shaped failures; the 16th new test
-(`test_import_server_starts_no_thread`) passes immediately as a disclosed
-guard: no watcher exists to start, and it will stay green through GREEN.
-(`test_config.py` +6, `test_server.py` +3, `tests/test_ingest_watch.py` new 7;
-62 passing elsewhere unchanged).
+Status: **RED established** (historical record) — 15 contract-shaped failures;
+the 16th new test (`test_import_server_starts_no_thread`) passed immediately
+as a disclosed guard: no watcher existed to start, and it stayed green through
+GREEN. (`test_config.py` +6, `test_server.py` +3, `tests/test_ingest_watch.py`
+new 7; 62 passing elsewhere unchanged.) All of it shipped in 2.2.0.
 
 - `test_config.py` additions:
   - defaults: `ingest_watch=True`, `ingest_watch_interval=30`
@@ -133,12 +133,12 @@ guard: no watcher exists to start, and it will stay green through GREEN.
 
 ## Process
 
-1. Issue branch: `scripts/issue-branch create feature 1 watch-mode`
-2. Spec amendment (this file): branch metadata + interval decision lock → user review/approval gate
-3. RED (tests) → user review/approval gate
-4. GREEN (implementation) → user review gate
-5. Docs updates → user review gate
-6. User reviews, commits, merges (`scripts/issue-branch finish`), releases (minor → v2.2.0)
+1. Issue branch: `scripts/issue-branch create feature 1 watch-mode` (done)
+2. Spec amendment (this file): branch metadata + interval decision lock → user review/approval gate (done)
+3. RED (tests) → user review/approval gate (done)
+4. GREEN (implementation) → user review gate (done)
+5. Docs updates → user review gate (done)
+6. User reviews, commits, merges (`scripts/issue-branch finish`), releases (minor → v2.2.0) (done)
 
 ## Amendment ledger
 
