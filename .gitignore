@@ -13,6 +13,7 @@ chroma_data/
 .opencode/index
 .opencode/codebase-index.json
 .opencode/.gitignore
+.opencode/workflow-review
 .cortexkit
 # General
 .DS_Store
@@ -73,3 +74,5 @@ Backups.backupdb
 .MobileBackups.trash
 MobileBackups.trash
 tmbootpicker.efi
+
+working-data

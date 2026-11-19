@@ -101,6 +101,11 @@ collection = "default"
 # re-syncs it every ingest_watch_interval seconds until shutdown.
 # watch = false          # set false to disable the background watcher
 # watch_interval = 30    # seconds between re-syncs
+
+[logging]
+# Lifecycle logging is opt-in: enabled = true turns it on (off by default).
+# enabled = true
+# path = "./.rag-mcp.log"   # project-local log file (default shown)
 ```
 
 Relative paths in the project file resolve against the directory containing
@@ -122,6 +127,46 @@ must be set in `.rag-mcp.toml` or via `RAG_MCP_CHROMA_PERSIST_DIR`.
 | `RAG_MCP_INGEST_COLLECTION` | `default` | Collection to sync `RAG_MCP_INGEST_DIR` into |
 | `RAG_MCP_INGEST_WATCH` | `true` | Enable (`true`) or disable (`false`) continuous background re-sync; strict bool, only `true`/`false` accepted |
 | `RAG_MCP_INGEST_WATCH_INTERVAL` | `30` | Seconds between background re-syncs; positive integer |
+| `RAG_MCP_LOGGING_PATH` | `<project root>/.rag-mcp.log` | Project-local log file path; relative resolves inside the project root |
+| `RAG_MCP_LOGGING_ENABLED` | `false` | Turn lifecycle logging on (`true`) or off (`false`); strict bool, only `true`/`false` accepted. Overrides `[logging] enabled` |
+
+## Logging
+
+Lifecycle logging is **off by default**. Turn it on per project with
+`[logging] enabled = true` in `.rag-mcp.toml`, or per run with
+`RAG_MCP_LOGGING_ENABLED=true`. While it is off, the server writes no log
+file and emits no lifecycle lines — including `watch sync failed:`, so a
+broken watcher stays invisible until you turn logging on. Config errors and
+the zero-match `ingest.patterns` warning still go to stderr, since those are
+diagnostics rather than lifecycle events.
+
+With logging on, every lifecycle event is one line, written to stderr and
+appended to a project-local log file:
+
+```text
+# stderr
+rag-mcp[my-project:48213] startup sync: added=2 updated=0 deleted=0 unchanged=180
+
+# .rag-mcp.log
+2026-11-06T19:46:18.144Z pid=48213 startup sync: added=2 updated=0 deleted=0 unchanged=180
+```
+
+Line types: `project=`, `start:`, `startup sync:`, `watch sync:` (only on a
+tick that changed something), `watch sync failed: {exc!r}`, and
+`shutdown: reason=exit|SIGTERM`. Idle ticks are silent, so a short
+`watch_interval` stays quiet.
+
+The file defaults to `.rag-mcp.log` at the project root — `[logging] path` in
+`.rag-mcp.toml` or `RAG_MCP_LOGGING_PATH` — rotates to `.rag-mcp.log.1` at
+1 MB, and degrades to stderr-only with a single warning if it cannot be
+written. Add it to `.gitignore`.
+
+The file line carries `pid=` rather than the full `rag-mcp[<project>:<pid>]`
+tag because the file is already per project and named for the tool; the pid is
+what distinguishes two sessions appending to the same file. opencode V2
+(2.2.5) does not surface a local server's stderr in its own log, so this file
+is the reliable history — `grep "pid=48213" .rag-mcp.log` picks out one
+instance.
 
 ## Initialize a starter config
 

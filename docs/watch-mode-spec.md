@@ -1,7 +1,7 @@
 # Ingest Watch Mode Spec
 
 Issue: #1
-Status: implementation complete — RED → GREEN closed, suite 144/144 green (2026-10-19); docs in progress; awaiting commit/review/release
+Status: released in 2.2.0 (2026-11-02) — RED → GREEN closed, shipped as `v2.2.0`; the suite has since grown to 183/183 green with the logging feature (issue #6) and the opt-in default
 Branch: dev/1-watch-mode (created with `scripts/issue-branch create feature 1 watch-mode`, dev version 2.2.0.dev1+issue-1-watch-mode)
 
 ## Objective
@@ -38,7 +38,7 @@ watcher without user intervention.
 | Interval | `ingest.watch_interval` (seconds), default 30 — configurable; positive integer validated eagerly (fails fast with `ValueError` on non-int, zero, or negative) |
 | Mechanism | Polling daemon thread started in `main()`, no new dependencies |
 | Tick order | Sleep-first each tick: `_watch_loop` sleeps `interval`, then syncs when not cancelled — the first watcher sync lands one interval after start, so the watcher never duplicates the startup auto-ingest sync |
-| Error policy | A failed sync raises `Exception` (any non-`BaseException`); it is caught, logged to stderr as a single line — `watch sync failed: {exc!r}` — no traceback, and the loop continues with the next sleep. `BaseException` subclasses (e.g. `KeyboardInterrupt`) are NOT caught: they kill the watcher thread; the server process is unaffected (daemon thread). A `sleep_fn` failure is likewise uncaught (production sleep is `time.sleep`, which cannot meaningfully fail) |
+| Error policy | A failed sync raises `Exception` (any non-`BaseException`); it is caught and logged as a single line — `watch sync failed: {exc!r}` — no traceback, and the loop continues with the next sleep. The line goes through the lifecycle sink, so it reaches stderr and the project log file only when lifecycle logging is enabled (`[logging] enabled = true`, default off — see `docs/sync-logging-spec.md`); with logging off, the failure is silent. `BaseException` subclasses (e.g. `KeyboardInterrupt`) are NOT caught: they kill the watcher thread; the server process is unaffected (daemon thread). A `sleep_fn` failure is likewise uncaught (production sleep is `time.sleep`, which cannot meaningfully fail) |
 | Cancel semantics (pinned post-RED) | The cancel `threading.Event` is a test seam; no production code sets it. All phases pinned: **before loop** → no-op (never sleeps, never syncs); **mid-sleep** → the armed tick's sync is suppressed and the loop exits immediately (prompt exit — a stopped watcher never fires one more sync); **mid-sync** → the in-flight sync completes, the loop exits before the next sleep. Teardown is process exit (daemon thread dies with the process); there is no production stop path |
 | Start gating | The watcher starts in `main()` only when `ingest_dir` is set AND `ingest_watch` is true, after the startup auto-ingest has run (or would have — same condition on `ingest_dir`). It is never started at module import |
 | Config capture | The watcher closes over the resolved `Config` at start; config snapshot semantics apply — edits to `.rag-mcp.toml` mid-run (host, model, patterns, interval, watch flag) take effect only on restart |
@@ -100,11 +100,11 @@ documented future mitigations.
 
 ## Test plan (RED, flat style, tests as locked contract)
 
-Status: **RED established** — 15 contract-shaped failures; the 16th new test
-(`test_import_server_starts_no_thread`) passes immediately as a disclosed
-guard: no watcher exists to start, and it will stay green through GREEN.
-(`test_config.py` +6, `test_server.py` +3, `tests/test_ingest_watch.py` new 7;
-62 passing elsewhere unchanged).
+Status: **RED established** (historical record) — 15 contract-shaped failures;
+the 16th new test (`test_import_server_starts_no_thread`) passed immediately
+as a disclosed guard: no watcher existed to start, and it stayed green through
+GREEN. (`test_config.py` +6, `test_server.py` +3, `tests/test_ingest_watch.py`
+new 7; 62 passing elsewhere unchanged.) All of it shipped in 2.2.0.
 
 - `test_config.py` additions:
   - defaults: `ingest_watch=True`, `ingest_watch_interval=30`
@@ -123,8 +123,9 @@ guard: no watcher exists to start, and it will stay green through GREEN.
   - sync called with the right arguments on each tick; cancel mid-sleep
     suppresses the armed tick (post-RED amendment 2: thresholds ≥3 sleeps /
     2 syncs, ≥4 sleeps / 3 syncs — prompt exit)
-  - a failed tick logs to stderr (`watch sync failed: {exc!r}`, no
-    traceback) and the loop continues
+  - a failed tick logs (`watch sync failed: {exc!r}`, no traceback) through the
+    lifecycle sink — to stderr and the project log file when logging is
+    enabled, silent when it is off — and the loop continues
   - loop stops cleanly on cancel (preset → no-op)
   - mid-sync cancel: in-flight sync completes, no further sleep — pinned
     by amendment 3
@@ -132,12 +133,12 @@ guard: no watcher exists to start, and it will stay green through GREEN.
 
 ## Process
 
-1. Issue branch: `scripts/issue-branch create feature 1 watch-mode`
-2. Spec amendment (this file): branch metadata + interval decision lock → user review/approval gate
-3. RED (tests) → user review/approval gate
-4. GREEN (implementation) → user review gate
-5. Docs updates → user review gate
-6. User reviews, commits, merges (`scripts/issue-branch finish`), releases (minor → v2.2.0)
+1. Issue branch: `scripts/issue-branch create feature 1 watch-mode` (done)
+2. Spec amendment (this file): branch metadata + interval decision lock → user review/approval gate (done)
+3. RED (tests) → user review/approval gate (done)
+4. GREEN (implementation) → user review gate (done)
+5. Docs updates → user review gate (done)
+6. User reviews, commits, merges (`scripts/issue-branch finish`), releases (minor → v2.2.0) (done)
 
 ## Amendment ledger
 
@@ -160,3 +161,11 @@ guard: no watcher exists to start, and it will stay green through GREEN.
   and new tests for the two untested exit paths in `test_config.py`.
   Root cause recorded: cancel-mid-sleep was left unpinned at RED, so the
   two RED-era tests invented contradictory codes for it.
+- **Amendment 4** (user-approved, one-time exception to the spec-phase rule):
+  the failed-tick line is conditional on lifecycle logging being enabled.
+  `docs/sync-logging-spec.md` Amendment 5 made `[logging] enabled` default to
+  `false`, and the failure line goes through the same sink, so it now reaches
+  stderr and the project log file only when logging is on. The Error policy
+  row and its test-plan bullet were corrected to say so; the failure format
+  (`watch sync failed: {exc!r}`, no traceback) and the continue-on-failure
+  behavior are unchanged.

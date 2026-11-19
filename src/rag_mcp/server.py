@@ -1,9 +1,12 @@
 """MCP server exposing RAG tools backed by Ollama embeddings and ChromaDB."""
 
 import argparse
+import os
+import signal
 import sys
 import threading
 import time
+from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, metadata
 from typing import Any
 
@@ -222,15 +225,157 @@ def sync() -> str:
     )
 
 
+def _format_sync_counts(result: dict[str, int]) -> str:
+    """Render a sync result dict as ``added=A updated=U deleted=D unchanged=N``."""
+    return (
+        f"added={result.get('added', 0)} "
+        f"updated={result.get('updated', 0)} "
+        f"deleted={result.get('deleted', 0)} "
+        f"unchanged={result.get('unchanged', 0)}"
+    )
+
+
+def _instance_tag(config: Any) -> str:
+    """Render the per-process log tag: ``rag-mcp[<project-dir-name>:<pid>]``."""
+    name = os.path.basename(config.project_root.rstrip(os.sep))
+    return f"rag-mcp[{name}:{os.getpid()}]"
+
+
+def _display_path(path: str, project_root: str) -> str:
+    """Render ``path`` relative to ``project_root`` when inside it, else absolute."""
+    root = os.path.realpath(project_root)
+    target = os.path.realpath(path)
+    rel = os.path.relpath(target, root)
+    if rel == os.curdir:
+        return os.curdir
+    if rel == os.pardir or rel.startswith(os.pardir + os.sep):
+        return target
+    return rel
+
+
+def _utc_timestamp() -> str:
+    """Current UTC time as ``YYYY-MM-DDTHH:MM:SS.mmmZ``."""
+    now = datetime.now(timezone.utc)
+    return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
+
+
+LOG_FILE_CAP_BYTES = 1_000_000
+LOG_FILE_BACKUP_SUFFIX = ".1"
+
+
+class _LogSink:
+    """Dual stderr+file sink for lifecycle lines.
+
+    Every line goes to stderr and is also appended to the configured log
+    file (created with parents as needed). The file is size-capped: once
+    it reaches ``LOG_FILE_CAP_BYTES`` it rotates to ``path + ".1"``
+    (single backup, overwritten). Writes from the server and watcher
+    threads serialize on a lock; concurrent *processes* share the file via
+    O_APPEND granularity — a torn or duplicated diagnostic line under
+    multi-writer contention is acceptable.
+
+    The sink never raises: if the file cannot be opened or a write fails,
+    it warns once on stderr and degrades to stderr-only, so logging can
+    never fail server boot.
+    """
+
+    def __init__(self, path: str | None, tag: str, pid: int, enabled: bool = True) -> None:
+        self._lock = threading.Lock()
+        self._file = None
+        self._path = path
+        self._tag = tag
+        self._pid = pid
+        self._enabled = enabled
+        self._warned = False
+        if path and enabled:
+            try:
+                parent = os.path.dirname(path)
+                if parent:
+                    os.makedirs(parent, exist_ok=True)
+                self._file = open(path, "a", encoding="utf-8")
+            except Exception as exc:  # noqa: BLE001 — logging must never fail boot
+                self._warn(
+                    f"rag-mcp log file unavailable: {exc!r} "
+                    "(continuing stderr-only)"
+                )
+
+    def _warn(self, text: str) -> None:
+        if not self._warned:
+            self._warned = True
+            print(text, file=sys.stderr)
+
+    def emit(self, text: str) -> None:
+        """Write one tagged line to stderr and append it to the log file."""
+        if not self._enabled:
+            return
+        print(f"{self._tag} {text}", file=sys.stderr)
+        with self._lock:
+            if self._file is None:
+                return
+            try:
+                if os.fstat(self._file.fileno()).st_size >= LOG_FILE_CAP_BYTES:
+                    self._file.close()
+                    os.replace(self._path, self._path + LOG_FILE_BACKUP_SUFFIX)
+                    self._file = open(self._path, "a", encoding="utf-8")
+                self._file.write(f"{_utc_timestamp()} pid={self._pid} {text}\n")
+                self._file.flush()
+            except Exception as exc:  # noqa: BLE001 — logging must never fail syncs
+                try:
+                    self._file.close()
+                except Exception:  # noqa: BLE001 — best-effort close on a dead file
+                    pass
+                self._file = None
+                self._warn(
+                    f"rag-mcp log file write failed: {exc!r} "
+                    "(continuing stderr-only)"
+                )
+
+    def close(self) -> None:
+        """Close the log file, if open. Never raises."""
+        with self._lock:
+            if self._file is not None:
+                try:
+                    self._file.close()
+                except OSError:
+                    pass
+                self._file = None
+
+
+def _emit(sink: _LogSink | None, text: str) -> None:
+    """Emit one lifecycle line via ``sink``, or plain stderr when ``None``."""
+    if sink is None:
+        print(text, file=sys.stderr)
+    else:
+        sink.emit(text)
+
+
+def _install_sigterm_handler(state: dict[str, str]) -> None:
+    """Log-and-exit on SIGTERM so the shutdown line always fires.
+
+    The handler records the reason and re-raises as ``SystemExit`` with the
+    conventional 128+signum status, so a SIGTERM death never masquerades
+    as a clean exit. The ``try/finally`` around ``mcp.run()`` in
+    :func:`main` prints the line. Only SIGKILL stays silent — nothing can
+    catch it. Installed from ``main()`` only, never at module import.
+    """
+
+    def _on_sigterm(signum: int, frame: object) -> None:
+        state["reason"] = "SIGTERM"
+        raise SystemExit(128 + signum)
+
+    signal.signal(signal.SIGTERM, _on_sigterm)
+
+
 def _make_sync_fn(store: VectorStore, config: Any):
     """Build the per-tick sync callable for the watcher.
 
     The returned callable invokes :func:`rag_mcp.ingest.sync_directory` with
-    the same arguments the startup auto-ingest passes.
+    the same arguments the startup auto-ingest passes, and returns its
+    result dict so the watch loop can log changing ticks.
     """
 
-    def _sync() -> None:
-        ingest.sync_directory(
+    def _sync() -> dict[str, int]:
+        return ingest.sync_directory(
             store,
             config.ingest_dir,
             collection=config.ingest_collection,
@@ -242,31 +387,44 @@ def _make_sync_fn(store: VectorStore, config: Any):
     return _sync
 
 
-def _watch_loop(sync, interval: int, sleep_fn, cancel: threading.Event) -> None:
+def _watch_loop(
+    sync, interval: int, sleep_fn, cancel: threading.Event, sink=None
+) -> None:
     """Poll ``sync`` every ``interval`` seconds until ``cancel`` is set.
 
     Each tick sleeps ``interval`` seconds first, then calls ``sync`` when
     the cancel event is not set — so the first sync lands one interval
-    after the loop starts. A failed sync (the callable raising anything)
-    is logged to stderr and the loop continues — the next sleep retries.
-    The cancel event ends the loop cleanly, including mid-sleep.
+    after the loop starts. A tick that changed anything (added, updated,
+    or deleted) is logged with its counts; fully-idle ticks stay silent so
+    short intervals don't spam. A failed sync (the callable raising
+    anything) is logged and the loop continues — the next sleep retries.
+    The cancel event ends the loop cleanly, including mid-sleep. Lines go
+    through ``sink`` when given, else plain stderr.
     """
     while not cancel.is_set():
         sleep_fn(interval)
         if cancel.is_set():
             return
         try:
-            sync()
+            result = sync()
         except Exception as exc:  # noqa: BLE001 — any sync failure is retried
-            print(f"watch sync failed: {exc!r}", file=sys.stderr)
+            _emit(sink, f"watch sync failed: {exc!r}")
+            continue
+        if isinstance(result, dict) and (
+            result.get("added", 0)
+            + result.get("updated", 0)
+            + result.get("deleted", 0)
+            > 0
+        ):
+            _emit(sink, f"watch sync: {_format_sync_counts(result)}")
 
 
-def _start_watcher(sync, interval: int) -> None:
+def _start_watcher(sync, interval: int, sink=None) -> None:
     """Start the daemon thread running :func:`_watch_loop`."""
     cancel = threading.Event()
     thread = threading.Thread(
         target=_watch_loop,
-        args=(sync, interval, time.sleep, cancel),
+        args=(sync, interval, time.sleep, cancel, sink),
         daemon=True,
     )
     thread.start()
@@ -308,8 +466,31 @@ def main(argv: list[str] | None = None) -> None:
         )
         sys.exit(1)
     store = VectorStore(persist_dir=config.chroma_persist_dir)
+    sink = _LogSink(
+        config.logging_path,
+        _instance_tag(config),
+        os.getpid(),
+        enabled=bool(config.logging_enabled),
+    )
+    ingest_display = (
+        _display_path(config.ingest_dir, config.project_root)
+        if config.ingest_dir
+        else "None"
+    )
+    _emit(sink, f"project='{config.project_root}'")
+    _emit(
+        sink,
+        f"start: persist_dir='"
+        f"{_display_path(config.chroma_persist_dir, config.project_root)}' "
+        f"ingest_dir='{ingest_display}' "
+        f"collection='{config.ingest_collection}' "
+        f"watch={config.ingest_watch} "
+        f"watch_interval={config.ingest_watch_interval}",
+    )
+    shutdown_state = {"reason": "exit"}
+    _install_sigterm_handler(shutdown_state)
     if config.ingest_dir:
-        ingest.sync_directory(
+        result = ingest.sync_directory(
             store,
             config.ingest_dir,
             collection=config.ingest_collection,
@@ -317,11 +498,18 @@ def main(argv: list[str] | None = None) -> None:
             embeddings_model=config.embeddings_model,
             patterns=config.ingest_patterns,
         )
+        _emit(sink, f"startup sync: {_format_sync_counts(result)}")
         if config.ingest_watch:
             _start_watcher(
-                _make_sync_fn(store, config), config.ingest_watch_interval
+                _make_sync_fn(store, config),
+                config.ingest_watch_interval,
+                sink,
             )
-    mcp.run()
+    try:
+        mcp.run()
+    finally:
+        _emit(sink, f"shutdown: reason={shutdown_state['reason']}")
+        sink.close()
 
 
 if __name__ == "__main__":

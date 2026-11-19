@@ -1,6 +1,11 @@
 # Ingest Generalization — Parked
 
 > Date: 2026-08-20 — from corpus-change Q&A. Not building today, revisit when adding Bear.app / other non-filesystem sources.
+>
+> Reviewed 2026-11-08 — still parked. Two things changed since: the MCP tool
+> is now the no-arg `sync` (2.0.0) rather than `sync_directory(directory)`, and
+> the background watcher landed in 2.2.0 (it re-syncs the same directory, so
+> it adds no new source type). Line numbers below are as of 2026-08-20.
 
 ## Current design
 
@@ -38,7 +43,9 @@ Today literally directory-coupled: `sync_directory(directory)` (`server.py:193`)
 
 ## Not building
 
-- Still markdown-only, no watcher, whole-file re-embed on any edit.
+- Still markdown-only, but the background watcher now exists (2.2.0) — it
+  re-syncs the same directory, so "no watcher" is no longer true. A changed
+  file is still re-embedded in full.
 - This doc + memory #159 are the durable record. No code or test changes in this step — docs-only.
 
 Refs: `ingest.py:128,137,142,167`, `store.py:58,63,84`, `server.py:193,250`, `config.py:159,164`.

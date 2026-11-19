@@ -16,15 +16,19 @@ class Config:
     chroma_persist_dir: str
     ingest_dir: str | None
     ingest_collection: str
+    project_root: str
     ingest_patterns: list[str] | None = None
     ingest_watch: bool = True
     ingest_watch_interval: int = 30
+    logging_path: str = ".rag-mcp.log"
+    logging_enabled: bool = False
 
 
 DEFAULT_EMBEDDINGS_HOST = "http://localhost:11434"
 DEFAULT_EMBEDDINGS_MODEL = "nomic-embed-text"
 DEFAULT_INGEST_COLLECTION = "default"
 DEFAULT_INGEST_WATCH_INTERVAL = 30
+DEFAULT_LOGGING_PATH = ".rag-mcp.log"
 
 PROJECT_CONFIG_FILENAME = ".rag-mcp.toml"
 
@@ -101,6 +105,26 @@ def _parse_watch_bool(environ: Mapping[str, str]) -> bool | None:
         return False
     raise ValueError(
         f"RAG_MCP_INGEST_WATCH must be 'true' or 'false', got: {raw!r}"
+    )
+
+
+def _parse_logging_enabled_bool(environ: Mapping[str, str]) -> bool | None:
+    """Parse the ``RAG_MCP_LOGGING_ENABLED`` env override.
+
+    Returns ``None`` when the variable is unset. Accepts only
+    ``true``/``false`` (case-insensitive); anything else — including the
+    empty string — is a ``ValueError``.
+    """
+    raw = environ.get("RAG_MCP_LOGGING_ENABLED")
+    if raw is None:
+        return None
+    lowered = raw.lower()
+    if lowered == "true":
+        return True
+    if lowered == "false":
+        return False
+    raise ValueError(
+        f"RAG_MCP_LOGGING_ENABLED must be 'true' or 'false', got: {raw!r}"
     )
 
 
@@ -183,6 +207,11 @@ def load_config(
     if isinstance(_global_ingest, dict) and "patterns" in _global_ingest:
         raise ValueError(
             "ingest.patterns is project-local and cannot be set in global config"
+        )
+    # logging is project-local only — reject if present in global config
+    if "logging" in global_data:
+        raise ValueError(
+            "logging is project-local and cannot be set in global config"
         )
     embeddings_from_global = global_data.get("embeddings", {})
 
@@ -267,6 +296,38 @@ def load_config(
         ingest.get("collection", DEFAULT_INGEST_COLLECTION),
     )
 
+    # Logging path: project-local [logging] table plus env override. Relative
+    # paths resolve against the project root (or cwd when there is no project
+    # file) and must stay within it; absolute paths are used as-is.
+    logging_cfg = project_data.get("logging", {})
+    if not isinstance(logging_cfg, dict):
+        raise ValueError("logging must be a table")
+    logging_raw = environ.get(
+        "RAG_MCP_LOGGING_PATH", logging_cfg.get("path", DEFAULT_LOGGING_PATH)
+    )
+    if not isinstance(logging_raw, str) or not logging_raw.strip():
+        raise ValueError(
+            f"logging.path must be a non-empty string: {logging_raw!r}"
+        )
+    logging_path = _resolve_path(
+        logging_raw,
+        project_root if project_root is not None else os.getcwd(),
+    )
+
+    # Logging enabled: project-local [logging] enabled plus env override. The
+    # env override wins; both sides accept only a strict boolean.
+    logging_enabled_env = _parse_logging_enabled_bool(environ)
+    if logging_enabled_env is not None:
+        logging_enabled = logging_enabled_env
+    else:
+        logging_enabled_raw = logging_cfg.get("enabled", False)
+        if not isinstance(logging_enabled_raw, bool):
+            raise ValueError(
+                "logging.enabled must be a boolean: "
+                f"{logging_enabled_raw!r}"
+            )
+        logging_enabled = logging_enabled_raw
+
     _validate_host(embeddings_host)
     if not embeddings_model or not embeddings_model.strip():
         raise ValueError("embeddings.model must be a non-empty string")
@@ -286,9 +347,14 @@ def load_config(
         chroma_persist_dir=persist_dir,
         ingest_dir=ingest_dir,
         ingest_collection=ingest_collection,
+        project_root=(
+            project_root if project_root is not None else os.getcwd()
+        ),
         ingest_patterns=ingest_patterns,
         ingest_watch=ingest_watch,
         ingest_watch_interval=ingest_watch_interval,
+        logging_path=logging_path,
+        logging_enabled=logging_enabled,
     )
 
 

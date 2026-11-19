@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-11-18
+
+### Added
+
+- Lifecycle logging for the server and the ingest watcher, on stderr and in a
+  project-local log file (closes #6).
+- Lifecycle logging is opt-in: turn it on per project with
+  `[logging] enabled = true` in `.rag-mcp.toml` or `RAG_MCP_LOGGING_ENABLED=true`.
+  Off by default — no log file is created and no lifecycle lines are emitted.
+- Log file defaults to `.rag-mcp.log` at the project root; set it with
+  `[logging] path` in `.rag-mcp.toml` or `RAG_MCP_LOGGING_PATH`. Project-local
+  only — `[logging]` in the global config raises.
+- Log lines: `project=`, `start:` with the resolved config, `startup sync:`
+  and `watch sync:` counts, `watch sync failed:`, and
+  `shutdown: reason=exit|SIGTERM`.
+- Idle watcher ticks stay silent; only a tick that changed something logs.
+- stderr lines are prefixed `rag-mcp[<project-dir>:<pid>]`; file lines carry an
+  ISO-8601 UTC timestamp and `pid=`.
+- The log file rotates to `.1` at 1 MB and degrades to stderr-only with one
+  warning when unwritable.
+
 ## [2.2.0] - 2026-11-02
 
 ### Added
