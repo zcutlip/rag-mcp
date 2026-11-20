@@ -1,7 +1,7 @@
 # Write Lock Spec
 
 Issue: #5
-Status: approved 2026-11-19 — scaffold pending; Amendment 1 approved and recorded; Amendment 2 proposed, user decision pending (scaffold blocked on it); checkpoint cp-c0c8acae corrections applied as Amendment 3
+Status: approved 2026-11-19 — scaffold pending; Amendment 1 approved and recorded; Amendment 2 proposed, user decision pending (scaffold blocked on it); checkpoint cp-c0c8acae corrections applied as Amendment 3; checkpoint cp-713f5bc corrections applied as Amendment 4; checkpoint cp-dbd338 corrections applied as Amendment 5 (Amendment 2 proposal completed: seam pinned)
 Branch: dev/5-writer-lock (created with `scripts/issue-branch create fix 5 writer-lock`)
 
 ## Objective
@@ -56,10 +56,10 @@ line types, and AGENTS.md test counts.
    operation, release at the end.
 3. **The kernel owns liveness.** Advisory file locks via filelock
    (`fcntl.flock` on POSIX; a `LockFileEx` exclusive byte-range lock
-   on Windows — both verified against upstream `_unix.py`/
-   `_windows.py`, 2026-11-19) are released by the OS when the holder
-   dies. No pid files, no liveness checks, no cleanup commands. A
-   leftover lock file is inert: presence never means held.
+   on Windows — both verified against the filelock 3.32.7 sources,
+   the release `>=3,<4` installs, 2026-11-19) are released by the OS
+   when the holder dies. No pid files, no liveness checks, no cleanup
+   commands. A leftover lock file is inert: presence never means held.
 4. **Inner layers stay lock-free.** `store.py`, `ingest.py`, and
    `embeddings.py` do not know the lock exists. The seam is a new
    `lock.py` module used at the server-side call sites, so nested
@@ -82,10 +82,10 @@ user 2026-11-19 before this spec was written.
 
 | Item | Decision |
 |---|---|
-| Mechanism | `filelock` package — new runtime dependency, `filelock>=3,<4`. POSIX: `fcntl.flock` (`LOCK_EX\|LOCK_NB`); Windows: `LockFileEx` exclusive byte-range lock, with `msvcrt` only bridging descriptors to handles (verified against upstream `_unix.py`/`_windows.py`, 2026-11-19). The kernel releases the lock on process death, so the no-stale-lock constraint holds by construction |
+| Mechanism | `filelock` package — new runtime dependency, `filelock>=3,<4` (resolves to 3.32.7, the newest 3.x; latest filelock is 4.2.12). POSIX: `fcntl.flock` (`LOCK_EX\|LOCK_NB`), contention = EACCES/EAGAIN/EWOULDBLOCK; Windows: `LockFileEx` exclusive byte-range lock, with `msvcrt` only bridging descriptors to handles (verified against the 3.32.7-tagged `_unix.py`/`_windows.py`, 2026-11-19). The kernel releases the lock on process death, so the no-stale-lock constraint holds by construction |
 | Lock unit | One lock per persist dir. The persist dir is the corruption domain (per-process segment writers), not the collection |
 | Lock path | Sibling of the persist dir: `os.path.realpath(persist_dir) + ".lock"`. realpath canonicalizes trailing slashes, relative spellings, and symlinks, so every process naming the same dir computes the same lock path. Sibling, not inside: no foreign files inside Chroma's directory (its tolerance for them is unverified), and the parent is necessarily writable wherever the persist dir is usable — Chroma creates a missing persist dir and its parents (`os.makedirs(..., exist_ok=True)` in `SqliteDB.__init__`, chromadb 1.5.9 source, verified 2026-11-19) |
-| Lock file lifetime | Created on first acquire. Unix: left in place after release — filelock keeps it because unlinking a locked file splits waiters across inodes; Windows: filelock attempts deletion on release and may leave the file (upstream `_release` implementations, verified 2026-11-19). Either way presence never means held; releasing closes the kernel lock, never the data |
+| Lock file lifetime | Created on first acquire (filelock creates a missing lock-file parent directory on acquire — 3.32.7 `ensure_directory_exists`). Unix flock path: left in place after release — unlinking a locked file splits waiters across inodes; on filesystems without flock, filelock falls back to a soft lock and removes its own placeholder. Windows: deletion is attempted on release and may not succeed (3.32.7 `_release`, both verified 2026-11-19). Either way presence never means held; releasing closes the kernel lock, never the data |
 | Try-only acquisition | All acquisitions are non-blocking tries (`acquire(timeout=0)` semantics). Nothing blocks on the lock |
 | Critical sections | Startup auto-ingest, every watcher tick, the `sync` tool, `add_documents`, `delete_collection` — each wraps its full operation |
 | Startup contention | Skip and log: `startup sync skipped: write lock held`. Start never blocks; with watch on, the next tick converges. With watch off, a skipped startup sync stays stale until a manual `sync` — accepted and documented below |
@@ -173,7 +173,8 @@ def write_lock(persist_dir: str) -> Iterator[FileLock]:
     to the same path
   - `try_write_lock` free path: acquires; lock file exists at the
     canonical path; released on context exit; file still present after
-    release (inert, not deleted)
+    release on the POSIX flock path (Windows attempts deletion — see
+    Lock file lifetime; the suite runs on POSIX)
   - `try_write_lock` under a second concurrent holder: yields `None`;
     acquires once the holder releases; an abrupt holder exit
     (exception raised inside the `with`) still releases
@@ -181,6 +182,14 @@ def write_lock(persist_dir: str) -> Iterator[FileLock]:
   - `write_lock` under a second holder: raises `WriteLockHeldError`
     with the exact pinned wording, lock path interpolated
 - `tests/test_server.py` (additions)
+  - server-level lock simulation (Amendment 2; used by every
+    following bullet): patch `rag_mcp.server.get_persist_dir` to
+    return a `tmp_path` persist dir; "held" = the test pre-acquires
+    the sibling lock itself
+    (`filelock.FileLock(write_lock_path(str(tmp_path)))` — a second
+    in-process fd contends on flock); "free" = no pre-acquire; the
+    unpatched accessor (module state unset) exercises the `None`
+    pass-through
   - `add_documents` with the lock held: embeddings called (outside the
     lock), store write NOT called, `WriteLockHeldError` raised; lock
     free: store write called and the lock released after the call
@@ -258,22 +267,51 @@ def write_lock(persist_dir: str) -> Iterator[FileLock]:
   skip line; `_make_sync_fn`'s signature is unchanged. Supersedes
   the "`dict | None`, `_watch_loop` treats `None` as a skipped tick"
   wording in the Pinned API and Test plan sections.
-- **Amendment 2** (proposed 2026-11-19, user decision pending —
+- **Amendment 2** (proposed 2026-11-19; revised 2026-11-19 per
+  checkpoint cp-dbd338 to pin the seam; user decision pending —
   scaffold is blocked on it): the lock path is sourced from module
-  state, not live config — `main()` records
-  `config.chroma_persist_dir` once (same pattern as the `store`
-  singleton); an accessor returns it only when the directory exists
-  on disk, else `None`; `try_write_lock`/`write_lock` accept
-  `str | None` and pass through unlocked on `None`. Reason: three
-  locked-test collisions (the delete_collection tests patch no
-  `get_config` at tests/test_server.py:108,159; `_make_sync_fn`'s
-  config mock lacks `chroma_persist_dir` at
-  tests/test_ingest_watch.py:86; main()'s tests fake a persist path
-  that cannot support a real acquire at tests/test_server.py:769).
+  state, not live config. Pinned seam (the scaffold contract if
+  adopted):
+  - `server.py` module state `_persist_dir: str | None = None`,
+    assigned once in `main()` as
+    `_persist_dir = config.chroma_persist_dir` (same pattern as the
+    `store` singleton; no separate setter)
+  - `server.py` accessor `get_persist_dir() -> str | None`:
+    returns the recorded value only when that directory exists on
+    disk, else `None`
+  - `lock.py` signatures widen:
+    `try_write_lock(persist_dir: str | None) -> Iterator[FileLock | None]`
+    and `write_lock(persist_dir: str | None) -> Iterator[FileLock]`;
+    `None` passes through unlocked
+  - all five call sites consume `get_persist_dir()`; no call site
+    reads `get_config()` for the lock path
+  **This is a deliberate fail-open**: on the `None` path a manual tool
+  proceeds without exclusion instead of raising, which narrows design
+  principle 1 and the Manual-tool contention decision to the
+  production serving state. It is reachable only before `main()` has
+  run (module-internal use, as the locked tests exercise the tools)
+  or after the persist dir vanished from disk; in production the
+  tools serve only after `main()`, whose `VectorStore` construction
+  has already created or validated the persist dir, so every
+  production write sees a recorded, existing dir and locks normally.
+  Reason: three locked-test collisions (the delete_collection tests
+  patch no `get_config` at tests/test_server.py:108,159;
+  `_make_sync_fn`'s config mock leaves `chroma_persist_dir`
+  unspecified at tests/test_ingest_watch.py:86, so the auto-created
+  child mock hands a non-path object to `os.path.realpath` — a
+  `TypeError`, not a missing attribute; main()'s tests fake persist
+  path `/tmp/project/.chroma` at tests/test_server.py:769, where a
+  real acquire silently creates `/tmp/project/` plus a stray
+  `/tmp/project/.chroma.lock` — filelock 3.32.7 creates a missing
+  lock-file parent chain on acquire
+  (`Path.parent.mkdir(parents=True, exist_ok=True)` in `_util.py`,
+  verified 2026-11-19) — so a real lock in a locked test litters or
+  errors depending on the machine, both unacceptable).
   Supersedes the implicit config-sourcing of the call sites in the
   Pinned API section; principles 2 and 4 and the scope table are
   unchanged. Not approved — recorded as the pending proposal
-  presented to the user.
+  presented to the user, including this fail-open statement and the
+  pinned seam.
 - **Amendment 3** (checkpoint corrections, applied 2026-11-19 from
   review cp-c0c8acae of the approved draft — CONCERNS verdict, five
   findings, each verified against the tree):
@@ -305,3 +343,56 @@ def write_lock(persist_dir: str) -> Iterator[FileLock]:
      contradictory "flock/`LockFileEx`" and "fcntl/flock + msvcrt
      shim" wording; corrects the lock-file lifetime row (Unix keeps
      the file by design; Windows attempts deletion on release).
+- **Amendment 4** (checkpoint corrections, applied 2026-11-19 from
+  review cp-713f5bc of the Amendment 3 state — CONCERNS verdict, two
+  findings, both verified):
+  1. Reconciles the test plan with the corrected lock-file lifetime
+     row: the `try_write_lock` free-path bullet no longer asserts
+     "file still present after release" cross-platform — it is
+     POSIX-flock-path-scoped (Windows attempts deletion; the suite
+     runs on POSIX). Re-verified mechanism and release behavior
+     against filelock **3.32.7**, the release `>=3,<4` actually
+     installs (latest filelock is 4.2.12), replacing the upstream-
+     main citations in principle 3, the Mechanism row, and the
+     lifetime row, and recording two facts found in the tagged
+     source: filelock creates a missing lock-file parent on acquire
+     (`ensure_directory_exists`), and on flock-less filesystems it
+     falls back to a soft lock that removes its own placeholder —
+     the Unix "kept by design" claim is flock-path-scoped.
+  2. Corrects Amendment 2's pending-proposal text: states the
+     `None` path as a deliberate fail-open that narrows principle 1
+     and the Manual-tool contention decision to the production
+     serving state, and replaces collision 3's "cannot support a
+     real acquire" rationale — under 3.32.7 a real acquire on the
+     faked path would instead silently create `/tmp/project/` and a
+     stray `/tmp/project/.chroma.lock` via
+     `ensure_directory_exists`, so the locked main test litters
+     rather than errors. Neither behavior is acceptable in a locked
+     test; the collision stands with the corrected mechanism.
+- **Amendment 5** (checkpoint corrections, applied 2026-11-19 from
+  review cp-dbd338 of the pending Amendment 2 proposal — CONCERNS
+  verdict, two findings, both verified):
+  1. Completes the pending proposal as a scaffold contract: pins the
+     module-state seam it introduces — `_persist_dir` assigned in
+     `main()`, accessor `get_persist_dir() -> str | None`, the
+     widened `try_write_lock`/`write_lock` signatures, call-site
+     consumption — inside the proposal itself; adds a pointer note
+     in the Pinned API section so its `str`-only signatures are not
+     silently superseded while the proposal is pending; and pins the
+     server-level lock-test simulation in the test plan (patch
+     `rag_mcp.server.get_persist_dir` to a `tmp_path` dir; "held" =
+     the test pre-acquires the sibling lock, a second in-process fd
+     contending; "free" = no pre-acquire; unpatched = the `None`
+     pass-through). A pending amendment that leaves names for the
+     scaffold to invent is not approvable as-is.
+  2. Corrects collision 2's failure mode: the MagicMock config at
+     tests/test_ingest_watch.py:86-92 does not lack
+     `chroma_persist_dir` — an unspecified attribute on a MagicMock
+     auto-creates a child mock, so the mock hands a non-path object
+     to `os.path.realpath` and fails with `TypeError`. The collision
+     stands; the mechanism was misdescribed.
+  3. Verified the collision 3 / lifetime-row basis against the
+     3.32.7-tagged `_util.py`: `ensure_directory_exists` does
+     `Path(filename).parent.mkdir(parents=True, exist_ok=True)` —
+     the full missing parent chain is created on acquire. The
+     corrected collision 3 wording stands as written.
