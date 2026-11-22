@@ -1,7 +1,7 @@
 # Write Lock Spec
 
 Issue: #5
-Status: spec approved 2026-11-19 — Amendments 1 and 2 approved and recorded; checkpoint corrections recorded as Amendments 3-5; Amendment 6 (pass-through yield pin) and Amendment 7 (review corrections) approved and recorded; scaffold ready, awaiting the user gate to begin
+Status: spec approved 2026-11-19, Amendments 1-7 recorded; scaffold gate granted by the user 2026-11-22 ("scaffold stage approved") — scaffold landed, existing suite green; RED gate granted 2026-11-22 ("proceed") — RED contract written, RED-repair batch (checkpoint findings) applied, RED established: 17 failed / 186 passed, every failure the implementation's absence
 Branch: dev/5-writer-lock (created with `scripts/issue-branch create fix 5 writer-lock`)
 
 ## Objective
