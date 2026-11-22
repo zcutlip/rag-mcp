@@ -16,6 +16,7 @@ from rag_mcp import ingest
 from rag_mcp._cli import add_version_argument
 from rag_mcp.config import get_config
 from rag_mcp.embeddings import get_embeddings
+from rag_mcp.lock import try_write_lock, write_lock
 from rag_mcp.store import VectorStore
 
 mcp = MCPServer(
@@ -31,6 +32,8 @@ mcp = MCPServer(
     ),
 )
 store: VectorStore | None = None
+_persist_dir: str | None = None
+_SKIP_TICK = object()  # _sync() sentinel: this tick skipped for write-lock contention
 
 
 def _read_readme() -> str | None:
@@ -65,6 +68,13 @@ def get_store() -> VectorStore:
     return store
 
 
+def get_persist_dir() -> str | None:
+    """Return the recorded persist dir when it exists on disk, else ``None``."""
+    if _persist_dir is None:
+        return None
+    return _persist_dir if os.path.isdir(_persist_dir) else None
+
+
 @mcp.tool()
 def add_documents(
     documents: list[str],
@@ -83,13 +93,14 @@ def add_documents(
 
     cfg = get_config()
     embeddings = get_embeddings(documents, cfg.embeddings_host, cfg.embeddings_model)
-    get_store().add(
-        collection=collection,
-        documents=documents,
-        embeddings=embeddings,
-        ids=ids,
-        metadatas=metadatas,
-    )
+    with write_lock(get_persist_dir()):
+        get_store().add(
+            collection=collection,
+            documents=documents,
+            embeddings=embeddings,
+            ids=ids,
+            metadatas=metadatas,
+        )
     return f"Added {len(documents)} document(s) to collection '{collection}'."
 
 
@@ -193,7 +204,8 @@ def delete_collection(collection: str = "default") -> str:
     s = get_store()
     if collection not in s.list_collections():
         raise ValueError(f"Collection '{collection}' does not exist.")
-    s.delete_collection(collection)
+    with write_lock(get_persist_dir()):
+        s.delete_collection(collection)
     return f"Deleted collection '{collection}'."
 
 
@@ -210,14 +222,15 @@ def sync() -> str:
             "No ingest directory configured: set [ingest] directory in .rag-mcp.toml "
             "or via RAG_MCP_INGEST_DIR"
         )
-    result = ingest.sync_directory(
-        get_store(),
-        config.ingest_dir,
-        collection=config.ingest_collection,
-        embeddings_host=config.embeddings_host,
-        embeddings_model=config.embeddings_model,
-        patterns=config.ingest_patterns,
-    )
+    with write_lock(get_persist_dir()):
+        result = ingest.sync_directory(
+            get_store(),
+            config.ingest_dir,
+            collection=config.ingest_collection,
+            embeddings_host=config.embeddings_host,
+            embeddings_model=config.embeddings_model,
+            patterns=config.ingest_patterns,
+        )
     return (
         f"Synced '{config.ingest_dir}' into collection '{config.ingest_collection}': "
         f"{result['added']} added, {result['updated']} updated, "
@@ -374,15 +387,18 @@ def _make_sync_fn(store: VectorStore, config: Any):
     result dict so the watch loop can log changing ticks.
     """
 
-    def _sync() -> dict[str, int]:
-        return ingest.sync_directory(
-            store,
-            config.ingest_dir,
-            collection=config.ingest_collection,
-            embeddings_host=config.embeddings_host,
-            embeddings_model=config.embeddings_model,
-            patterns=config.ingest_patterns,
-        )
+    def _sync() -> dict[str, int] | object:
+        with try_write_lock(get_persist_dir()) as lock:
+            if lock is None:
+                return _SKIP_TICK
+            return ingest.sync_directory(
+                store,
+                config.ingest_dir,
+                collection=config.ingest_collection,
+                embeddings_host=config.embeddings_host,
+                embeddings_model=config.embeddings_model,
+                patterns=config.ingest_patterns,
+            )
 
     return _sync
 
@@ -432,7 +448,7 @@ def _start_watcher(sync, interval: int, sink=None) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     """Run the MCP server using stdio transport."""
-    global store
+    global store, _persist_dir
     parser = argparse.ArgumentParser(
         prog="rag-mcp",
         description="Run the rag-mcp MCP server.",
@@ -466,6 +482,7 @@ def main(argv: list[str] | None = None) -> None:
         )
         sys.exit(1)
     store = VectorStore(persist_dir=config.chroma_persist_dir)
+    _persist_dir = config.chroma_persist_dir
     sink = _LogSink(
         config.logging_path,
         _instance_tag(config),
@@ -490,15 +507,19 @@ def main(argv: list[str] | None = None) -> None:
     shutdown_state = {"reason": "exit"}
     _install_sigterm_handler(shutdown_state)
     if config.ingest_dir:
-        result = ingest.sync_directory(
-            store,
-            config.ingest_dir,
-            collection=config.ingest_collection,
-            embeddings_host=config.embeddings_host,
-            embeddings_model=config.embeddings_model,
-            patterns=config.ingest_patterns,
-        )
-        _emit(sink, f"startup sync: {_format_sync_counts(result)}")
+        with try_write_lock(get_persist_dir()) as lock:
+            if lock is None:
+                _emit(sink, "startup sync skipped: write lock held")
+            else:
+                result = ingest.sync_directory(
+                    store,
+                    config.ingest_dir,
+                    collection=config.ingest_collection,
+                    embeddings_host=config.embeddings_host,
+                    embeddings_model=config.embeddings_model,
+                    patterns=config.ingest_patterns,
+                )
+                _emit(sink, f"startup sync: {_format_sync_counts(result)}")
         if config.ingest_watch:
             _start_watcher(
                 _make_sync_fn(store, config),
