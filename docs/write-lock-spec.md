@@ -1,7 +1,7 @@
 # Write Lock Spec
 
 Issue: #5
-Status: spec approved 2026-11-19 — Amendments 1 and 2 approved and recorded; checkpoint corrections recorded as Amendments 3-5; scaffold ready, awaiting the user gate to begin
+Status: spec approved 2026-11-19 — Amendments 1 and 2 approved and recorded; checkpoint corrections recorded as Amendments 3-5; Amendment 6 (pass-through yield pin) approved and recorded; scaffold ready, awaiting the user gate to begin
 Branch: dev/5-writer-lock (created with `scripts/issue-branch create fix 5 writer-lock`)
 
 ## Objective
@@ -113,16 +113,28 @@ class WriteLockHeldError(RuntimeError): ...
 def write_lock_path(persist_dir: str) -> str:
     """Canonical sibling lock path: realpath(persist_dir) + '.lock'."""
 
-@contextmanager
-def try_write_lock(persist_dir: str | None) -> Iterator[FileLock | None]:
-    """Try-acquire without blocking; yield the lock, or None when held
-    elsewhere. A None persist_dir passes through unlocked (Amendment 2)."""
+class _UnlockedLock:
+    """Inert no-op lock token; nothing touches the filesystem."""
+
+_UNLOCKED = _UnlockedLock()
 
 @contextmanager
-def write_lock(persist_dir: str | None) -> Iterator[FileLock]:
+def try_write_lock(persist_dir: str | None) -> Iterator[FileLock | _UnlockedLock | None]:
+    """Try-acquire without blocking; yield the lock, or None when held
+    elsewhere. A None persist_dir passes through unlocked, yielding
+    _UNLOCKED — never None, which always means held elsewhere
+    (Amendments 2 and 6)."""
+
+@contextmanager
+def write_lock(persist_dir: str | None) -> Iterator[FileLock | _UnlockedLock]:
     """Try-acquire; raise WriteLockHeldError when held elsewhere.
-    A None persist_dir passes through unlocked (Amendment 2)."""
+    A None persist_dir passes through unlocked, yielding _UNLOCKED
+    (Amendments 2 and 6)."""
 ```
+
+Callers distinguish solely on `is None` (Amendment 6): `None` means
+held elsewhere; an acquired `FileLock` and the `_UNLOCKED`
+pass-through both mean proceed.
 
 `server.py` module state + call sites (behavior lands in GREEN):
 
@@ -131,14 +143,15 @@ def write_lock(persist_dir: str | None) -> Iterator[FileLock]:
   `get_persist_dir() -> str | None` returns it only when that
   directory exists on disk, else `None` (Amendment 2)
 - `main()` startup auto-ingest → `try_write_lock(get_persist_dir())`;
-  `None` → emit the skip line; else sync and emit the existing
+  yielded `None` (held elsewhere) → emit the skip line; an acquired
+  lock or the `_UNLOCKED` pass-through → sync and emit the existing
   `startup sync:` line
-- `_make_sync_fn`'s inner `_sync()` → `try_write_lock`; `None` →
-  return the module-level sentinel `_SKIP_TICK` (`server.py`); else
-  the sync result. `_watch_loop` emits the skip line on that sentinel
-  and continues. `None` keeps its existing meaning — a sync callable
-  returning nothing to log — so the locked watch tests stay green
-  untouched (Amendment 1)
+- `_make_sync_fn`'s inner `_sync()` → `try_write_lock`; yielded
+  `None` (held elsewhere) → return the module-level sentinel
+  `_SKIP_TICK` (`server.py`); else the sync result. `_watch_loop`
+  emits the skip line on that sentinel and continues. `None` keeps
+  its existing meaning — a sync callable returning nothing to log —
+  so the locked watch tests stay green untouched (Amendment 1)
 - `sync`, `add_documents`, `delete_collection` →
   `write_lock(get_persist_dir())` around the mutation; all five call
   sites source the dir from `get_persist_dir()`, never `get_config()`
@@ -243,8 +256,8 @@ def write_lock(persist_dir: str | None) -> Iterator[FileLock]:
 1. Branch: `scripts/issue-branch create fix 5 writer-lock` (done — 323b6a6)
 2. Spec written (this file) → user review/approval gate (this step)
 3. Scaffold: `lock.py` with the pinned signatures as pass-through
-   placeholders (`try_write_lock` yields a dummy, `write_lock` never
-   raises — the existing suite stays green), `filelock` added to
+   placeholders (`try_write_lock` yields `_UNLOCKED`, `write_lock`
+   never raises — the existing suite stays green), `filelock` added to
    `pyproject.toml` and installed into `~/.virtualenvs/rag-mcp` (the
    env `scripts/run-tests.sh` activates — the repo has no project
    venv; as of 2026-11-19 that venv is missing on this machine and
@@ -413,3 +426,32 @@ def write_lock(persist_dir: str | None) -> Iterator[FileLock]:
      `Path(filename).parent.mkdir(parents=True, exist_ok=True)` —
      the full missing parent chain is created on acquire. The
      corrected collision 3 wording stands as written.
+- **Amendment 6** (approved by the user 2026-11-22, "make the edit";
+  proposed the same day from a review of the approved spec): a
+  `None` persist-dir pass-through yields the named no-op sentinel,
+  never `None`. Pinned contract:
+  - `lock.py` defines `_UnlockedLock`, an inert token (nothing
+    touches the filesystem), and the module-level singleton
+    `_UNLOCKED = _UnlockedLock()`
+  - `try_write_lock(None)` and `write_lock(None)` yield `_UNLOCKED`;
+    the pinned annotations widen to
+    `Iterator[FileLock | _UnlockedLock | None]` and
+    `Iterator[FileLock | _UnlockedLock]`
+  - callers distinguish solely on `is None`, which keeps exactly one
+    meaning — held elsewhere — so a pass-through can never emit a
+    false skip line or raise a false `WriteLockHeldError`
+  - the startup and watcher call-site bullets now read "yielded
+    `None` (held elsewhere)", and process step 3's scaffold stub
+    "yields a dummy" is now "yields `_UNLOCKED`" — the scaffold
+    invents nothing
+  Reason: the approved Pinned API left the pass-through yield
+  unnamed, so `None` was ambiguous between held-elsewhere and
+  no-persist-dir-on-record; a vanished-dir pass-through yielding
+  `None` would emit a false `write lock held` skip line on every
+  tick. Closes the scaffold-invention gap under Amendment 5's own
+  standard ("a pending amendment that leaves names for the scaffold
+  to invent is not approvable as-is"). Supersedes the "passes
+  through unlocked" wording of the Pinned API docstrings, the bare
+  `None` of the startup and watcher bullets, and process step 3's
+  unnamed dummy; Amendment 2's ledger entry and its fail-open
+  statement stand unchanged.
