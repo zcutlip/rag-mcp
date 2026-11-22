@@ -150,8 +150,10 @@ in either channel, and a `pid=<n>` grep selects one instance across both.
   unusable from the watcher thread.
 - Log levels: `[logging] enabled` is a single on/off switch, not a severity
   knob. Quiet-by-default remains structural (idle ticks are silent).
-- Fixing concurrent-writer corruption (issue #5). This spec only makes
-  concurrent children visible; it does not mediate between them.
+- Fixing concurrent-writer corruption (issue #5) — now fixed by the
+  cross-process write lock (`docs/write-lock-spec.md`,
+  dev/5-writer-lock). That spec owns write mediation; this spec's scope
+  was and remains visibility only.
 - Log shipping, structured/JSON output, per-line rotation checks beyond the
   size cap.
 - Changes to `ingest.py`, `store.py`, `embeddings.py`.
@@ -161,8 +163,12 @@ in either channel, and a `pid=<n>` grep selects one instance across both.
 Each stdio session is its own OS process; the watcher is a thread inside it.
 Two children on one project therefore write two independent watchers' lines
 into the same file, and the PID is the only way to attribute a tick to one of
-them. Running two sessions against one project remains unsupported for writes
-(issue #5); the log makes that state visible rather than preventing it.
+them. Running two sessions against one project is now supported for writes —
+issue #5 landed the cross-process write lock (`docs/write-lock-spec.md`):
+a losing session's startup or tick skips with `startup sync skipped: write
+lock held` or `watch sync skipped: write lock held`, both routed through
+this spec's sink. The log remains where contention is visible; the lock,
+not the log, prevents corruption.
 
 ## Test plan (flat style, tests as locked contract)
 
@@ -256,3 +262,13 @@ flipped the config default and the suite stands at 183/183 green.
   Corrects the Sink shape row in the same change: it had claimed the sink's
   parameter default is `False`. It is `True` — the opt-in lives in the config
   default, and `main()` passes `config.logging_enabled` through explicitly.
+- **Amendment 6** (docs phase of issue #5, dev/5-writer-lock, user gate
+  "proceed" 2026-11-22): the out-of-scope bullet and the Concurrency note
+  are amended to record issue #5 as fixed by the cross-process write lock
+  (`docs/write-lock-spec.md`) — two sessions on one project are now
+  supported for writes, with contention visible as the two new skip
+  lines (`startup sync skipped:`, `watch sync skipped: write lock held`)
+  routed through this spec's sink. Supersedes "Running two sessions
+  against one project remains unsupported for writes (issue #5)" and the
+  out-of-scope framing of issue #5 as open. The sink contract itself is
+  unchanged; the write-lock spec owns the skip-line wording.

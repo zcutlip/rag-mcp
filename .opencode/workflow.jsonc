@@ -3,5 +3,5 @@
   "mode": "steer",
   "workflow": "spec-scaffold-red-green-docs-finish",
   "version": 1,
-  "contract": "AGENTS.md"
+  "contract": "docs/write-lock-spec.md"
 }

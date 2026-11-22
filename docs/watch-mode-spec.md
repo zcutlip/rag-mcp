@@ -90,13 +90,18 @@ watcher without user intervention.
 ## Concurrency note
 
 Each stdio session is its own process. Concurrent ChromaDB READS among
-processes are safe; concurrent WRITES sharing one persistence dir are not
-(process-local HNSW segment writers are outside SQLite serialization). A
-watcher makes a session a periodic writer, so a known caveat is that N
-simultaneously running sessions are N periodic writers against one
-persist dir. Fine for single-session and read-heavy use; for heavy
-multi-session use a single-writer lockfile or client/server mode remain
-documented future mitigations.
+processes are safe. Concurrent WRITES sharing one persistence dir are
+serialized by the cross-process write lock (issue #5, landed:
+`docs/write-lock-spec.md`) — every write path (startup sync, each watch
+tick, `sync`, `add_documents`, `delete_collection`) try-acquires an
+advisory lock on the persist dir's sibling `.lock` file and skips or
+fails transiently when another process holds it. A watcher therefore no
+longer makes N simultaneously running sessions N racing writers:
+overlapping ticks skip with `watch sync skipped: write lock held` and
+retry the next interval. Safe when every overlapping session runs the
+lock-aware build; a foreign or pre-lock Chroma writer bypasses the
+advisory lock. For heavy multi-session use, client/server mode (`chroma
+run` + `HttpClient`) remains the documented scaling answer.
 
 ## Test plan (RED, flat style, tests as locked contract)
 
@@ -169,3 +174,12 @@ new 7; 62 passing elsewhere unchanged.) All of it shipped in 2.2.0.
   row and its test-plan bullet were corrected to say so; the failure format
   (`watch sync failed: {exc!r}`, no traceback) and the continue-on-failure
   behavior are unchanged.
+- **Amendment 5** (docs phase of issue #5, dev/5-writer-lock, user gate
+  "proceed" 2026-11-22): the Concurrency note is rewritten to record the
+  landed cross-process write lock (`docs/write-lock-spec.md`) — writes
+  sharing a persist dir are serialized by an advisory sibling lock, and
+  the "a single-writer lockfile or client/server mode remain documented
+  future mitigations" sentence is superseded, as the lockfile mitigation
+  shipped. The advisory-lock qualifier ("every overlapping session runs
+  the lock-aware build") and the `watch sync skipped:` skip line come
+  from that spec's Supersedes section and Amendment 7.

@@ -37,7 +37,7 @@ Or if you prefer to drive yourself follow these instructions...
 1. Meet the prerequisites: Python 3.12+, [Ollama](https://ollama.com) running locally, and the embedding model pulled (`ollama pull nomic-embed-text`).
 2. Install `rag-mcp` (see [Installation](#installation)).
 3. From the project root, run `rag-mcp-config init` to generate starter config files.
-4. Add `.chroma/` (or your chosen `persist_dir`) to `.gitignore`.
+4. Add `.chroma/` (or your chosen `persist_dir`) and its sibling lock file `<persist_dir>.lock` to `.gitignore`.
 5. Configure your coding agent (see [MCP Client Configuration](#mcp-client-configuration)).
 6. Restart and verify the MCP connection.
 
@@ -151,8 +151,9 @@ rag-mcp[my-project:48213] startup sync: added=2 updated=0 deleted=0 unchanged=18
 2026-11-06T19:46:18.144Z pid=48213 startup sync: added=2 updated=0 deleted=0 unchanged=180
 ```
 
-Line types: `project=`, `start:`, `startup sync:`, `watch sync:` (only on a
-tick that changed something), `watch sync failed: {exc!r}`, and
+Line types: `project=`, `start:`, `startup sync:`, `startup sync skipped:`,
+`watch sync:` (only on a tick that changed something), `watch sync skipped:`
+(write lock held by another process), `watch sync failed: {exc!r}`, and
 `shutdown: reason=exit|SIGTERM`. Idle ticks are silent, so a short
 `watch_interval` stays quiet.
 
@@ -167,6 +168,13 @@ what distinguishes two sessions appending to the same file. opencode V2
 (2.2.5) does not surface a local server's stderr in its own log, so this file
 is the reliable history — `grep "pid=48213" .rag-mcp.log` picks out one
 instance.
+
+Multiple sessions (editor tabs) against one project are safe for writes when
+every overlapping session runs this lock-aware build: each write try-acquires
+an advisory lock (`<persist_dir>.lock`, created next to the persist dir), a
+losing session's startup sync or watch tick skips and retries, and the
+manual write tools report transient lock contention instead of racing the
+winner.
 
 ## Initialize a starter config
 

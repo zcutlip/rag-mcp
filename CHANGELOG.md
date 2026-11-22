@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.1] - 2026-11-22
+
+### Added
+
+- Cross-process write lock (filelock) serializing writes on one persist
+  dir — losing startup/watch syncs skip and retry, manual tools raise a
+  transient `WriteLockHeldError`.
+
+### Fixed
+
+- Concurrent Chroma writers on a shared persist dir can no longer corrupt
+  the index (issue #5): one writer at a time, kernel-released on holder
+  death, no cleanup commands.
+
 ## [2.3.0] - 2026-11-18
 
 ### Added
