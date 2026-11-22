@@ -426,6 +426,9 @@ def _watch_loop(
         except Exception as exc:  # noqa: BLE001 — any sync failure is retried
             _emit(sink, f"watch sync failed: {exc!r}")
             continue
+        if result is _SKIP_TICK:
+            _emit(sink, "watch sync skipped: write lock held")
+            continue
         if isinstance(result, dict) and (
             result.get("added", 0)
             + result.get("updated", 0)
