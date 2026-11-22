@@ -29,6 +29,7 @@ def test_write_lock_path_canonicalizes_to_realpath_sibling(tmp_path):
     assert write_lock_path(str(persist) + os.sep) == base
     assert write_lock_path(str(alias)) == base
     assert write_lock_path(os.path.join(str(persist), os.curdir)) == base
+    assert write_lock_path(os.path.relpath(str(persist))) == base
 
 
 def test_try_write_lock_free_path_acquires_and_releases(tmp_path):
@@ -47,8 +48,9 @@ def test_try_write_lock_free_path_acquires_and_releases(tmp_path):
         with pytest.raises(filelock.Timeout):
             probe.acquire(timeout=0)
 
-    with filelock.FileLock(lock_path):
-        pass
+    probe = filelock.FileLock(lock_path)
+    probe.acquire(timeout=5)
+    probe.release()
     assert os.path.exists(lock_path)
 
 
@@ -98,8 +100,9 @@ def test_write_lock_free_path_enters_and_releases(tmp_path):
         with pytest.raises(filelock.Timeout):
             probe.acquire(timeout=0)
 
-    with filelock.FileLock(lock_path):
-        pass
+    probe = filelock.FileLock(lock_path)
+    probe.acquire(timeout=5)
+    probe.release()
 
 
 def test_write_lock_held_raises_with_pinned_wording(tmp_path):

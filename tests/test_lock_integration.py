@@ -61,9 +61,9 @@ with try_write_lock(persist_dir) as lock:
         f"SYNCED added={result['added']} unchanged={result['unchanged']}",
         flush=True,
     )
+    if role == "winner":
+        wait_for(release_path)  # hold the lock until the parent drops `release`
 
-if role == "winner":
-    wait_for(release_path)
 sys.exit(0)
 '''
 

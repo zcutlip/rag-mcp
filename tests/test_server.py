@@ -958,8 +958,9 @@ def test_add_documents_lock_free_writes_and_releases(
 
     assert result == "Added 1 document(s) to collection 'default'."
     mock_store.add.assert_called_once()
-    with filelock.FileLock(write_lock_path(str(persist))):
-        pass
+    probe = filelock.FileLock(write_lock_path(str(persist)))
+    probe.acquire(timeout=5)
+    probe.release()
 
 
 @patch("rag_mcp.server.get_persist_dir")
@@ -1034,6 +1035,30 @@ def test_sync_lock_free_calls_with_unchanged_arguments(
     assert kwargs["embeddings_model"] == "nomic-embed-text"
 
 
+@patch("rag_mcp.server.get_persist_dir", return_value=None)
+@patch("rag_mcp.server.get_config")
+@patch("rag_mcp.server.get_store")
+@patch("rag_mcp.server.ingest.sync_directory")
+def test_sync_none_persist_dir_proceeds_unlocked(
+    mock_sync, mock_get_store, mock_get_config, mock_get_persist_dir
+):
+    """With no persist dir on record (get_persist_dir -> None), sync passes
+    through unlocked: sync_directory runs and no lock error raises."""
+    mock_get_config.return_value = _test_config()
+    mock_get_store.return_value = MagicMock()
+    mock_sync.return_value = {"added": 0, "updated": 0, "deleted": 0, "unchanged": 0}
+
+    from rag_mcp.server import sync
+
+    result = sync()
+
+    mock_sync.assert_called_once()
+    assert result == (
+        "Synced '/tmp/docs' into collection 'docs': "
+        "0 added, 0 updated, 0 deleted, 0 unchanged."
+    )
+
+
 @patch("rag_mcp.server.get_persist_dir")
 @patch("rag_mcp.server.get_store")
 def test_delete_collection_lock_held_prechecks_but_skips_delete(
@@ -1090,8 +1115,9 @@ def test_delete_collection_lock_free_deletes(
 
     assert result == "Deleted collection 'default'."
     mock_store.delete_collection.assert_called_once_with("default")
-    with filelock.FileLock(write_lock_path(str(persist))):
-        pass
+    probe = filelock.FileLock(write_lock_path(str(persist)))
+    probe.acquire(timeout=5)
+    probe.release()
 
 
 @patch("rag_mcp.server.get_persist_dir")
@@ -1184,5 +1210,6 @@ def test_main_startup_lock_free_syncs_and_releases(
         call.args[0] for call in mock_sink_cls.return_value.emit.call_args_list
     ]
     assert texts[2] == "startup sync: added=2 updated=0 deleted=1 unchanged=180"
-    with filelock.FileLock(write_lock_path(str(persist))):
-        pass
+    probe = filelock.FileLock(write_lock_path(str(persist)))
+    probe.acquire(timeout=5)
+    probe.release()
