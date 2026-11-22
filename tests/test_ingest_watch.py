@@ -4,7 +4,10 @@ import sys
 import threading
 from unittest.mock import MagicMock, patch
 
+import filelock
+
 from rag_mcp import server
+from rag_mcp.lock import write_lock_path
 
 
 def test_watch_loop_calls_sync_each_tick():
@@ -206,3 +209,73 @@ def test_start_watcher_passes_sink_to_loop():
         server._start_watcher(sync, 30, sink)
     args = thread_cls.call_args.kwargs["args"]
     assert args[4] is sink
+
+
+def test_make_sync_fn_lock_held_returns_skip_tick(tmp_path):
+    """With the write lock held, the watcher's sync callable returns the
+    _SKIP_TICK sentinel and never calls sync_directory."""
+    store = MagicMock()
+    cfg = MagicMock(
+        ingest_dir="/tmp/docs",
+        ingest_collection="docs",
+        embeddings_host="http://h",
+        embeddings_model="m",
+        ingest_patterns=None,
+    )
+    persist = tmp_path / "persist"
+    persist.mkdir()
+    sync_fn = server._make_sync_fn(store, cfg)
+
+    holder = filelock.FileLock(write_lock_path(str(persist)))
+    holder.acquire(timeout=0)
+    try:
+        with patch("rag_mcp.server.get_persist_dir", return_value=str(persist)):
+            with patch("rag_mcp.server.ingest.sync_directory") as mock_sync:
+                result = sync_fn()
+    finally:
+        holder.release()
+
+    assert result is server._SKIP_TICK
+    mock_sync.assert_not_called()
+
+
+def test_watch_loop_lock_held_skips_then_recovers(tmp_path):
+    """A tick under a held lock emits the skip line without syncing; once the
+    lock frees, the next tick syncs normally."""
+    store = MagicMock()
+    cfg = MagicMock(
+        ingest_dir="/tmp/docs",
+        ingest_collection="docs",
+        embeddings_host="http://h",
+        embeddings_model="m",
+        ingest_patterns=None,
+    )
+    persist = tmp_path / "persist"
+    persist.mkdir()
+    sync_fn = server._make_sync_fn(store, cfg)
+    sink = MagicMock()
+    cancel = threading.Event()
+
+    holder = filelock.FileLock(write_lock_path(str(persist)))
+    holder.acquire(timeout=0)
+    ticks = []
+
+    def fake_sleep(_interval):
+        ticks.append(_interval)
+        if len(ticks) == 2:
+            holder.release()
+        if len(ticks) >= 3:
+            cancel.set()
+
+    with patch("rag_mcp.server.get_persist_dir", return_value=str(persist)):
+        with patch("rag_mcp.server.ingest.sync_directory") as mock_sync:
+            mock_sync.return_value = {
+                "added": 0,
+                "updated": 0,
+                "deleted": 0,
+                "unchanged": 7,
+            }
+            server._watch_loop(sync_fn, 5, fake_sleep, cancel, sink)
+
+    mock_sync.assert_called_once()
+    sink.emit.assert_called_once_with("watch sync skipped: write lock held")

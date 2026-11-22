@@ -5,6 +5,7 @@ import re
 import signal
 from unittest.mock import MagicMock, patch
 
+import filelock
 import pytest
 
 
@@ -883,3 +884,305 @@ def test_main_shutdown_line_emitted_when_run_raises(
     mock_sink_cls.return_value.emit.assert_any_call(
         "shutdown: reason=exit"
     )
+
+
+# Write-lock contention tests (issue #5). Simulation contract: patch
+# rag_mcp.server.get_persist_dir to a tmp_path persist dir; "held" = the
+# test pre-acquires the sibling lock (a second in-process fd contends on
+# flock); "free" = no pre-acquire.
+
+
+@patch("rag_mcp.server.get_persist_dir")
+@patch("rag_mcp.server.get_config")
+@patch("rag_mcp.server.get_embeddings")
+@patch("rag_mcp.server.get_store")
+def test_add_documents_lock_held_raises_after_embeddings(
+    mock_get_store,
+    mock_get_embeddings,
+    mock_get_config,
+    mock_get_persist_dir,
+    tmp_path,
+):
+    """With the lock held, add_documents computes embeddings (outside the
+    lock), raises WriteLockHeldError, and never calls the store."""
+    from rag_mcp.lock import WriteLockHeldError, write_lock_path
+
+    from rag_mcp.server import add_documents
+
+    mock_get_config.return_value = _test_config()
+    mock_store = MagicMock()
+    mock_get_store.return_value = mock_store
+    mock_get_embeddings.return_value = [[0.1, 0.2]]
+    persist = tmp_path / "persist"
+    persist.mkdir()
+    mock_get_persist_dir.return_value = str(persist)
+
+    holder = filelock.FileLock(write_lock_path(str(persist)))
+    holder.acquire(timeout=0)
+    try:
+        with pytest.raises(WriteLockHeldError):
+            add_documents(documents=["doc one"])
+    finally:
+        holder.release()
+
+    mock_get_embeddings.assert_called_once()
+    mock_store.add.assert_not_called()
+
+
+@patch("rag_mcp.server.get_persist_dir")
+@patch("rag_mcp.server.get_config")
+@patch("rag_mcp.server.get_embeddings")
+@patch("rag_mcp.server.get_store")
+def test_add_documents_lock_free_writes_and_releases(
+    mock_get_store,
+    mock_get_embeddings,
+    mock_get_config,
+    mock_get_persist_dir,
+    tmp_path,
+):
+    """With the lock free, add_documents writes and the lock is released
+    after the call."""
+    from rag_mcp.lock import write_lock_path
+
+    from rag_mcp.server import add_documents
+
+    mock_get_config.return_value = _test_config()
+    mock_store = MagicMock()
+    mock_get_store.return_value = mock_store
+    mock_get_embeddings.return_value = [[0.1, 0.2]]
+    persist = tmp_path / "persist"
+    persist.mkdir()
+    mock_get_persist_dir.return_value = str(persist)
+
+    result = add_documents(documents=["doc one"])
+
+    assert result == "Added 1 document(s) to collection 'default'."
+    mock_store.add.assert_called_once()
+    with filelock.FileLock(write_lock_path(str(persist))):
+        pass
+
+
+@patch("rag_mcp.server.get_persist_dir")
+@patch("rag_mcp.server.get_config")
+@patch("rag_mcp.server.get_store")
+@patch("rag_mcp.server.ingest.sync_directory")
+def test_sync_lock_held_raises_without_syncing(
+    mock_sync,
+    mock_get_store,
+    mock_get_config,
+    mock_get_persist_dir,
+    tmp_path,
+):
+    """With the lock held, sync raises WriteLockHeldError without calling
+    sync_directory."""
+    from rag_mcp.lock import WriteLockHeldError, write_lock_path
+
+    from rag_mcp.server import sync
+
+    mock_get_config.return_value = _test_config()
+    mock_get_store.return_value = MagicMock()
+    persist = tmp_path / "persist"
+    persist.mkdir()
+    mock_get_persist_dir.return_value = str(persist)
+
+    holder = filelock.FileLock(write_lock_path(str(persist)))
+    holder.acquire(timeout=0)
+    try:
+        with pytest.raises(WriteLockHeldError):
+            sync()
+    finally:
+        holder.release()
+
+    mock_sync.assert_not_called()
+
+
+@patch("rag_mcp.server.get_persist_dir")
+@patch("rag_mcp.server.get_config")
+@patch("rag_mcp.server.get_store")
+@patch("rag_mcp.server.ingest.sync_directory")
+def test_sync_lock_free_calls_with_unchanged_arguments(
+    mock_sync,
+    mock_get_store,
+    mock_get_config,
+    mock_get_persist_dir,
+    tmp_path,
+):
+    """With the lock free, sync calls sync_directory with the same arguments
+    as before the lock wiring."""
+    from rag_mcp.server import sync
+
+    mock_get_config.return_value = _test_config()
+    mock_store = MagicMock()
+    mock_get_store.return_value = mock_store
+    mock_sync.return_value = {"added": 1, "updated": 2, "deleted": 3, "unchanged": 4}
+    persist = tmp_path / "persist"
+    persist.mkdir()
+    mock_get_persist_dir.return_value = str(persist)
+
+    result = sync()
+
+    assert result == (
+        "Synced '/tmp/docs' into collection 'docs': "
+        "1 added, 2 updated, 3 deleted, 4 unchanged."
+    )
+    mock_sync.assert_called_once()
+    args, kwargs = mock_sync.call_args
+    assert args[0] is mock_store
+    assert args[1] == "/tmp/docs"
+    assert kwargs["collection"] == "docs"
+    assert kwargs["embeddings_host"] == "http://localhost:11434"
+    assert kwargs["embeddings_model"] == "nomic-embed-text"
+
+
+@patch("rag_mcp.server.get_persist_dir")
+@patch("rag_mcp.server.get_store")
+def test_delete_collection_lock_held_prechecks_but_skips_delete(
+    mock_get_store,
+    mock_get_persist_dir,
+    tmp_path,
+):
+    """With the lock held, the existence pre-check still runs but the delete
+    is skipped and WriteLockHeldError is raised."""
+    from rag_mcp.lock import WriteLockHeldError, write_lock_path
+
+    from rag_mcp.server import delete_collection
+
+    mock_store = MagicMock()
+    mock_store.list_collections.return_value = ["default"]
+    mock_get_store.return_value = mock_store
+    persist = tmp_path / "persist"
+    persist.mkdir()
+    mock_get_persist_dir.return_value = str(persist)
+
+    holder = filelock.FileLock(write_lock_path(str(persist)))
+    holder.acquire(timeout=0)
+    try:
+        with pytest.raises(WriteLockHeldError):
+            delete_collection(collection="default")
+    finally:
+        holder.release()
+
+    mock_store.list_collections.assert_called_once()
+    mock_store.delete_collection.assert_not_called()
+
+
+@patch("rag_mcp.server.get_persist_dir")
+@patch("rag_mcp.server.get_store")
+def test_delete_collection_lock_free_deletes(
+    mock_get_store,
+    mock_get_persist_dir,
+    tmp_path,
+):
+    """With the lock free, delete_collection deletes and the lock is released
+    after the call."""
+    from rag_mcp.lock import write_lock_path
+
+    from rag_mcp.server import delete_collection
+
+    mock_store = MagicMock()
+    mock_store.list_collections.return_value = ["default"]
+    mock_get_store.return_value = mock_store
+    persist = tmp_path / "persist"
+    persist.mkdir()
+    mock_get_persist_dir.return_value = str(persist)
+
+    result = delete_collection(collection="default")
+
+    assert result == "Deleted collection 'default'."
+    mock_store.delete_collection.assert_called_once_with("default")
+    with filelock.FileLock(write_lock_path(str(persist))):
+        pass
+
+
+@patch("rag_mcp.server.get_persist_dir")
+@patch("rag_mcp.server._LogSink")
+@patch("rag_mcp.server.ingest.sync_directory")
+@patch("rag_mcp.server.mcp.run")
+@patch("rag_mcp.server.VectorStore")
+@patch("rag_mcp.server.get_config")
+def test_main_startup_lock_held_skips_sync(
+    mock_get_config,
+    mock_vectorstore,
+    mock_run,
+    mock_sync,
+    mock_sink_cls,
+    mock_get_persist_dir,
+    tmp_path,
+):
+    """With the lock held at startup, main() skips the auto-ingest and logs
+    exactly one skip line."""
+    from rag_mcp.lock import write_lock_path
+
+    from rag_mcp.server import main
+
+    cfg = _test_config()
+    cfg.ingest_watch = False
+    cfg.ingest_watch_interval = 30
+    cfg.logging_path = "/tmp/rag.log"
+    cfg.chroma_persist_dir = "/tmp/project/.chroma"
+    cfg.ingest_dir = "/tmp/project/docs"
+    mock_get_config.return_value = cfg
+    persist = tmp_path / "persist"
+    persist.mkdir()
+    mock_get_persist_dir.return_value = str(persist)
+
+    holder = filelock.FileLock(write_lock_path(str(persist)))
+    holder.acquire(timeout=0)
+    try:
+        main([])
+    finally:
+        holder.release()
+
+    mock_sync.assert_not_called()
+    texts = [
+        call.args[0] for call in mock_sink_cls.return_value.emit.call_args_list
+    ]
+    assert texts.count("startup sync skipped: write lock held") == 1
+
+
+@patch("rag_mcp.server.get_persist_dir")
+@patch("rag_mcp.server._LogSink")
+@patch("rag_mcp.server.ingest.sync_directory")
+@patch("rag_mcp.server.mcp.run")
+@patch("rag_mcp.server.VectorStore")
+@patch("rag_mcp.server.get_config")
+def test_main_startup_lock_free_syncs_and_releases(
+    mock_get_config,
+    mock_vectorstore,
+    mock_run,
+    mock_sync,
+    mock_sink_cls,
+    mock_get_persist_dir,
+    tmp_path,
+):
+    """With the lock free, main() emits the unchanged startup sync line and
+    the lock is released after the call."""
+    from rag_mcp.lock import write_lock_path
+
+    from rag_mcp.server import main
+
+    cfg = _test_config()
+    cfg.ingest_watch = False
+    cfg.ingest_watch_interval = 30
+    cfg.logging_path = "/tmp/rag.log"
+    cfg.chroma_persist_dir = "/tmp/project/.chroma"
+    cfg.ingest_dir = "/tmp/project/docs"
+    mock_get_config.return_value = cfg
+    mock_sync.return_value = {
+        "added": 2,
+        "updated": 0,
+        "deleted": 1,
+        "unchanged": 180,
+    }
+    persist = tmp_path / "persist"
+    persist.mkdir()
+    mock_get_persist_dir.return_value = str(persist)
+
+    main([])
+
+    texts = [
+        call.args[0] for call in mock_sink_cls.return_value.emit.call_args_list
+    ]
+    assert texts[2] == "startup sync: added=2 updated=0 deleted=1 unchanged=180"
+    with filelock.FileLock(write_lock_path(str(persist))):
+        pass
