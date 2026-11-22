@@ -1,7 +1,7 @@
 # Write Lock Spec
 
 Issue: #5
-Status: spec approved 2026-11-19 — Amendments 1 and 2 approved and recorded; checkpoint corrections recorded as Amendments 3-5; Amendment 6 (pass-through yield pin) approved and recorded; scaffold ready, awaiting the user gate to begin
+Status: spec approved 2026-11-19 — Amendments 1 and 2 approved and recorded; checkpoint corrections recorded as Amendments 3-5; Amendment 6 (pass-through yield pin) and Amendment 7 (review corrections) approved and recorded; scaffold ready, awaiting the user gate to begin
 Branch: dev/5-writer-lock (created with `scripts/issue-branch create fix 5 writer-lock`)
 
 ## Objective
@@ -52,8 +52,10 @@ line types, and AGENTS.md test counts.
    error. No pile-up, no blocked server, no deadlocks by construction.
    (Amendment 2: this guarantee is the production serving state, after
    `main()` recorded an existing persist dir; the `None` pass-through
-   before that — or after the dir vanished — proceeds unlocked and
-   never serves in production.)
+   before that — or after the dir vanished — proceeds unlocked.
+   Amendment 7: the vanished-dir arm can occur while the process is
+   serving; what the store layer then does is Chroma's own behavior,
+   not this spec's claim.)
 2. **The lock spans the whole operation.** The corruption window is the
    operation — a full sync pass including its deletion diff, an add, a
    collection delete — not the individual Chroma call. Acquire once per
@@ -94,7 +96,7 @@ user 2026-11-19 before this spec was written.
 | Critical sections | Startup auto-ingest, every watcher tick, the `sync` tool, `add_documents`, `delete_collection` — each wraps its full operation |
 | Startup contention | Skip and log: `startup sync skipped: write lock held`. Start never blocks; with watch on, the next tick converges. With watch off, a skipped startup sync stays stale until a manual `sync` — accepted and documented below |
 | Watcher contention | Skip and log one line per skipped tick: `watch sync skipped: write lock held`; the loop continues and the next interval retries |
-| Manual-tool contention | `sync`, `add_documents`, `delete_collection` raise `WriteLockHeldError` at acquisition, before any mutation — in the production serving state; a `None` persist-dir pass-through (Amendment 2) precedes `main()` and never serves |
+| Manual-tool contention | `sync`, `add_documents`, `delete_collection` raise `WriteLockHeldError` at acquisition, before any mutation — in the production serving state; a `None` persist-dir pass-through (Amendment 2) is reachable pre-`main()` (module-internal/test use) or post-`main()` after the dir vanished, and proceeds unlocked in both arms (Amendment 7) |
 | Error wording | `write lock held at <lock path>; retry once the current write completes` — transient contention, not a broken state. The holder may be another process's write or this process's own watcher tick |
 | `add_documents` ordering | Embeddings are computed before the lock attempt; the lock wraps only the store write. Contention costs one wasted embedding call; embedding under the lock would instead lengthen every add's critical section by the Ollama round trip |
 | `delete_collection` ordering | The `list_collections` existence pre-check stays outside the lock (a read); the delete itself is inside |
@@ -190,6 +192,10 @@ pass-through both mean proceed.
   recorded here rather than silently taken.
 - With watch off, a skipped startup sync leaves the index stale until a
   manual `sync`; the logged skip line makes that state visible.
+- The lock is advisory: it excludes only lock-aware rag-mcp writers. An
+  older rag-mcp build serving another tab, or any process writing the
+  persist dir through Chroma directly, never acquires it and writes
+  regardless (Amendment 7).
 
 ## Test plan (flat style, tests as locked contract)
 
@@ -207,15 +213,20 @@ pass-through both mean proceed.
   - `write_lock` free path: enters and releases
   - `write_lock` under a second holder: raises `WriteLockHeldError`
     with the exact pinned wording, lock path interpolated
+  - `None` pass-through (Amendment 6 contract): `try_write_lock(None)`
+    yields `_UNLOCKED`, never `None`; `write_lock(None)` yields
+    `_UNLOCKED` and never raises; neither touches the filesystem
 - `tests/test_server.py` (additions)
   - server-level lock simulation (Amendment 2; used by every
     following bullet): patch `rag_mcp.server.get_persist_dir` to
     return a `tmp_path` persist dir; "held" = the test pre-acquires
     the sibling lock itself
     (`filelock.FileLock(write_lock_path(str(tmp_path)))` — a second
-    in-process fd contends on flock); "free" = no pre-acquire; the
-    unpatched accessor (module state unset) exercises the `None`
-    pass-through
+    in-process fd contends on flock); "free" = no pre-acquire;
+    "pass-through" = the patch returns `None` (Amendment 7: an
+    explicit patch, never reliance on module state being unset —
+    `main()` tests leave `_persist_dir` residue, so an unpatched
+    accessor is order-dependent)
   - `add_documents` with the lock held: embeddings called (outside the
     lock), store write NOT called, `WriteLockHeldError` raised; lock
     free: store write called and the lock released after the call
@@ -271,11 +282,14 @@ pass-through both mean proceed.
 6. Docs: amend the two specs that pin the retired caveat —
    `docs/watch-mode-spec.md` §Concurrency and
    `docs/sync-logging-spec.md` §Out of scope + §Concurrency note (see
-   Supersedes); README (multi-tab is now safe; add the lock-file
-   gitignore note for the sibling `<persist_dir>.lock`; add the two
-   new line types `startup sync skipped:` and `watch sync skipped:`
-   to the line-type list); `AGENTS.md` module list and test counts →
-   user gate
+   Supersedes); README (multi-tab is now safe when every overlapping
+   session runs the lock-aware build; add the lock-file gitignore
+   note for the sibling `<persist_dir>.lock`; add the two new line
+   types `startup sync skipped:` and `watch sync skipped:` to the
+   line-type list); `AGENTS.md` module list and test counts;
+   `CHANGELOG.md` `[Unreleased]` bullets — the lock and the two
+   skip-line types; finish promotes the section but never authors
+   entries (Amendment 7) → user gate
 7. User reviews, commits, `scripts/issue-branch finish` (merge + tag,
    closes #5)
 
@@ -314,12 +328,14 @@ pass-through both mean proceed.
   **This is a deliberate fail-open**: on the `None` path a manual tool
   proceeds without exclusion instead of raising, which narrows design
   principle 1 and the Manual-tool contention decision to the
-  production serving state. It is reachable only before `main()` has
+  production serving state. It is reachable before `main()` has
   run (module-internal use, as the locked tests exercise the tools)
   or after the persist dir vanished from disk; in production the
   tools serve only after `main()`, whose `VectorStore` construction
   has already created or validated the persist dir, so every
-  production write sees a recorded, existing dir and locks normally.
+  production write sees a recorded dir — the vanished-dir arm,
+  reachable while serving, passes through unlocked rather than
+  locking normally.
   Reason: three locked-test collisions (the delete_collection tests
   patch no `get_config` at tests/test_server.py:108,159;
   `_make_sync_fn`'s config mock leaves `chroma_persist_dir`
@@ -455,3 +471,49 @@ pass-through both mean proceed.
   `None` of the startup and watcher bullets, and process step 3's
   unnamed dummy; Amendment 2's ledger entry and its fail-open
   statement stand unchanged.
+- **Amendment 7** (approved by the user 2026-11-22, "go ahead and make
+  your amendment"; items 1-3 from the user's primary-session review of
+  the Amendment 6 diff — its verdict confirmed against the tree in
+  this session — items 4-5 from this session's review findings):
+  1. Corrects the "never serves" family: the vanished-dir
+     pass-through is reachable while the process is serving, so the
+     Manual-tool contention row's "precedes `main()` and never
+     serves", principle 1's "never serves in production", and
+     Amendment 2's "recorded, existing dir and locks normally" were
+     each false for that arm; corrected in place (the Amendment 4
+     precedent). The fix does not adopt the reviewing session's
+     "fails harmlessly at the store layer" wording: Chroma's
+     behavior on a vanished persist dir mid-session is unverified;
+     this spec claims only "proceeds unlocked".
+  2. Test plan: the server-level simulation's pass-through case is an
+     explicit `get_persist_dir` patch returning `None`; the previous
+     "unpatched accessor (module state unset)" was order-dependent —
+     `main()` tests leave `_persist_dir` residue, and residue
+     pointing at an existing dir acquires a real lock instead of
+     exercising the pass-through. Adds the lock-level `None`
+     pass-through bullet to `tests/test_lock.py` (the Amendment 6
+     contract, previously untested in the plan).
+  3. Residual risks + docs step: the lock is advisory — it excludes
+     only lock-aware rag-mcp writers; an older build in another tab
+     or a foreign Chroma writer bypasses it. README's multi-tab
+     claim gains "when every overlapping session runs the lock-aware
+     build".
+  4. Process step 6 gains the `CHANGELOG.md` `[Unreleased]` bullets:
+     the section is empty and finish promotes without authoring, so
+     the branch must write its own entries.
+  5. Records the provenance gap in commit 1dd51f5: the Amendment 5
+     entry was rewritten in place (the pointer-note truth-fix) with
+     only an inline parenthetical; the established pattern carries
+     such corrections inside a numbered amendment, which this entry
+     now does.
+  Also records: a checkpoint review of the pre-Amendment-6 spec
+  flagged the `None`-yield ambiguity as blocking; Amendment 6's
+  `_UNLOCKED` sentinel is that fix, and the four tests it cited were
+  re-checked against the current wiring — each takes the proceed
+  branch and stays green — so that finding is stale and nothing
+  blocks scaffold on that account.
+  Supersedes principle 1's "never serves in production", the
+  Manual-tool contention row's "precedes `main()` and never serves",
+  Amendment 2's "recorded, existing dir and locks normally" tail,
+  and the test plan's "the unpatched accessor (module state unset)
+  exercises the `None` pass-through".
