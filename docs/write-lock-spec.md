@@ -1,7 +1,7 @@
 # Write Lock Spec
 
 Issue: #5
-Status: approved 2026-11-19 — scaffold pending; Amendment 1 approved and recorded; Amendment 2 proposed, user decision pending (scaffold blocked on it); checkpoint cp-c0c8acae corrections applied as Amendment 3; checkpoint cp-713f5bc corrections applied as Amendment 4; checkpoint cp-dbd338 corrections applied as Amendment 5 (Amendment 2 proposal completed: seam pinned)
+Status: spec approved 2026-11-19 — Amendments 1 and 2 approved and recorded; checkpoint corrections recorded as Amendments 3-5; scaffold ready, awaiting the user gate to begin
 Branch: dev/5-writer-lock (created with `scripts/issue-branch create fix 5 writer-lock`)
 
 ## Objective
@@ -50,6 +50,10 @@ line types, and AGENTS.md test counts.
    non-blocking try. No code path ever waits on the lock: the watcher
    and startup skip and log; manual tools raise a named, transient
    error. No pile-up, no blocked server, no deadlocks by construction.
+   (Amendment 2: this guarantee is the production serving state, after
+   `main()` recorded an existing persist dir; the `None` pass-through
+   before that — or after the dir vanished — proceeds unlocked and
+   never serves in production.)
 2. **The lock spans the whole operation.** The corruption window is the
    operation — a full sync pass including its deletion diff, an add, a
    collection delete — not the individual Chroma call. Acquire once per
@@ -90,7 +94,7 @@ user 2026-11-19 before this spec was written.
 | Critical sections | Startup auto-ingest, every watcher tick, the `sync` tool, `add_documents`, `delete_collection` — each wraps its full operation |
 | Startup contention | Skip and log: `startup sync skipped: write lock held`. Start never blocks; with watch on, the next tick converges. With watch off, a skipped startup sync stays stale until a manual `sync` — accepted and documented below |
 | Watcher contention | Skip and log one line per skipped tick: `watch sync skipped: write lock held`; the loop continues and the next interval retries |
-| Manual-tool contention | `sync`, `add_documents`, `delete_collection` raise `WriteLockHeldError` at acquisition, before any mutation |
+| Manual-tool contention | `sync`, `add_documents`, `delete_collection` raise `WriteLockHeldError` at acquisition, before any mutation — in the production serving state; a `None` persist-dir pass-through (Amendment 2) precedes `main()` and never serves |
 | Error wording | `write lock held at <lock path>; retry once the current write completes` — transient contention, not a broken state. The holder may be another process's write or this process's own watcher tick |
 | `add_documents` ordering | Embeddings are computed before the lock attempt; the lock wraps only the store write. Contention costs one wasted embedding call; embedding under the lock would instead lengthen every add's critical section by the Ollama round trip |
 | `delete_collection` ordering | The `list_collections` existence pre-check stays outside the lock (a read); the delete itself is inside |
@@ -110,26 +114,35 @@ def write_lock_path(persist_dir: str) -> str:
     """Canonical sibling lock path: realpath(persist_dir) + '.lock'."""
 
 @contextmanager
-def try_write_lock(persist_dir: str) -> Iterator[FileLock | None]:
-    """Try-acquire without blocking; yield the lock, or None when held elsewhere."""
+def try_write_lock(persist_dir: str | None) -> Iterator[FileLock | None]:
+    """Try-acquire without blocking; yield the lock, or None when held
+    elsewhere. A None persist_dir passes through unlocked (Amendment 2)."""
 
 @contextmanager
-def write_lock(persist_dir: str) -> Iterator[FileLock]:
-    """Try-acquire; raise WriteLockHeldError when held elsewhere."""
+def write_lock(persist_dir: str | None) -> Iterator[FileLock]:
+    """Try-acquire; raise WriteLockHeldError when held elsewhere.
+    A None persist_dir passes through unlocked (Amendment 2)."""
 ```
 
-`server.py` call sites (behavior lands in GREEN):
+`server.py` module state + call sites (behavior lands in GREEN):
 
-- `main()` startup auto-ingest → `try_write_lock`; `None` → emit the
-  skip line; else sync and emit the existing `startup sync:` line
+- `main()` records `_persist_dir = config.chroma_persist_dir` once
+  (module state, same pattern as the `store` singleton);
+  `get_persist_dir() -> str | None` returns it only when that
+  directory exists on disk, else `None` (Amendment 2)
+- `main()` startup auto-ingest → `try_write_lock(get_persist_dir())`;
+  `None` → emit the skip line; else sync and emit the existing
+  `startup sync:` line
 - `_make_sync_fn`'s inner `_sync()` → `try_write_lock`; `None` →
   return the module-level sentinel `_SKIP_TICK` (`server.py`); else
   the sync result. `_watch_loop` emits the skip line on that sentinel
   and continues. `None` keeps its existing meaning — a sync callable
   returning nothing to log — so the locked watch tests stay green
   untouched (Amendment 1)
-- `sync`, `add_documents`, `delete_collection` → `write_lock` around
-  the mutation
+- `sync`, `add_documents`, `delete_collection` →
+  `write_lock(get_persist_dir())` around the mutation; all five call
+  sites source the dir from `get_persist_dir()`, never `get_config()`
+  (Amendment 2)
 
 ## Scope
 
@@ -267,11 +280,11 @@ def write_lock(persist_dir: str) -> Iterator[FileLock]:
   skip line; `_make_sync_fn`'s signature is unchanged. Supersedes
   the "`dict | None`, `_watch_loop` treats `None` as a skipped tick"
   wording in the Pinned API and Test plan sections.
-- **Amendment 2** (proposed 2026-11-19; revised 2026-11-19 per
-  checkpoint cp-dbd338 to pin the seam; user decision pending —
-  scaffold is blocked on it): the lock path is sourced from module
-  state, not live config. Pinned seam (the scaffold contract if
-  adopted):
+- **Amendment 2** (approved by the user 2026-11-19, "make amendment 2
+  to the spec"; originally proposed 2026-11-19, revised the same day
+  per checkpoint cp-dbd338 to pin the seam): the lock path is sourced
+  from module state, not live config. Pinned seam (the approved
+  scaffold contract):
   - `server.py` module state `_persist_dir: str | None = None`,
     assigned once in `main()` as
     `_persist_dir = config.chroma_persist_dir` (same pattern as the
@@ -309,9 +322,11 @@ def write_lock(persist_dir: str) -> Iterator[FileLock]:
   errors depending on the machine, both unacceptable).
   Supersedes the implicit config-sourcing of the call sites in the
   Pinned API section; principles 2 and 4 and the scope table are
-  unchanged. Not approved — recorded as the pending proposal
-  presented to the user, including this fail-open statement and the
-  pinned seam.
+  unchanged. Approved with this fail-open statement and the pinned
+  seam as part of what the user adopted; landing it updated the
+  Pinned API signatures, the call-site bullets, principle 1, and the
+  Manual-tool contention row to the narrowed production-serving
+  scope.
 - **Amendment 3** (checkpoint corrections, applied 2026-11-19 from
   review cp-c0c8acae of the approved draft — CONCERNS verdict, five
   findings, each verified against the tree):
@@ -376,9 +391,11 @@ def write_lock(persist_dir: str) -> Iterator[FileLock]:
      module-state seam it introduces — `_persist_dir` assigned in
      `main()`, accessor `get_persist_dir() -> str | None`, the
      widened `try_write_lock`/`write_lock` signatures, call-site
-     consumption — inside the proposal itself; adds a pointer note
-     in the Pinned API section so its `str`-only signatures are not
-     silently superseded while the proposal is pending; and pins the
+     consumption — inside the proposal itself; the planned pointer
+     note in the Pinned API section failed on an exact-match edit
+     error and was never landed (recorded here for truth; with
+     Amendment 2 approved, the section itself now carries the
+     widened signatures, mooting the note); and pins the
      server-level lock-test simulation in the test plan (patch
      `rag_mcp.server.get_persist_dir` to a `tmp_path` dir; "held" =
      the test pre-acquires the sibling lock, a second in-process fd
