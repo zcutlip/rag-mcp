@@ -9,7 +9,7 @@ from rag_mcp.lock import (
     WriteLockHeldError,
     try_write_lock,
     write_lock,
-    write_lock_path,
+    write_lock_path
 )
 
 

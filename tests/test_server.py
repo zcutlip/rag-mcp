@@ -906,7 +906,6 @@ def test_add_documents_lock_held_raises_after_embeddings(
     """With the lock held, add_documents computes embeddings (outside the
     lock), raises WriteLockHeldError, and never calls the store."""
     from rag_mcp.lock import WriteLockHeldError, write_lock_path
-
     from rag_mcp.server import add_documents
 
     mock_get_config.return_value = _test_config()
@@ -943,7 +942,6 @@ def test_add_documents_lock_free_writes_and_releases(
     """With the lock free, add_documents writes and the lock is released
     after the call."""
     from rag_mcp.lock import write_lock_path
-
     from rag_mcp.server import add_documents
 
     mock_get_config.return_value = _test_config()
@@ -977,7 +975,6 @@ def test_sync_lock_held_raises_without_syncing(
     """With the lock held, sync raises WriteLockHeldError without calling
     sync_directory."""
     from rag_mcp.lock import WriteLockHeldError, write_lock_path
-
     from rag_mcp.server import sync
 
     mock_get_config.return_value = _test_config()
@@ -1069,7 +1066,6 @@ def test_delete_collection_lock_held_prechecks_but_skips_delete(
     """With the lock held, the existence pre-check still runs but the delete
     is skipped and WriteLockHeldError is raised."""
     from rag_mcp.lock import WriteLockHeldError, write_lock_path
-
     from rag_mcp.server import delete_collection
 
     mock_store = MagicMock()
@@ -1101,7 +1097,6 @@ def test_delete_collection_lock_free_deletes(
     """With the lock free, delete_collection deletes and the lock is released
     after the call."""
     from rag_mcp.lock import write_lock_path
-
     from rag_mcp.server import delete_collection
 
     mock_store = MagicMock()
@@ -1138,7 +1133,6 @@ def test_main_startup_lock_held_skips_sync(
     """With the lock held at startup, main() skips the auto-ingest and logs
     exactly one skip line."""
     from rag_mcp.lock import write_lock_path
-
     from rag_mcp.server import main
 
     cfg = _test_config()
@@ -1184,7 +1178,6 @@ def test_main_startup_lock_free_syncs_and_releases(
     """With the lock free, main() emits the unchanged startup sync line and
     the lock is released after the call."""
     from rag_mcp.lock import write_lock_path
-
     from rag_mcp.server import main
 
     cfg = _test_config()
