@@ -6,4 +6,4 @@ Single source of version truth. Read by:
 - repo-mgmt-scripts workflow tooling (stdlib ast, no import)
 """
 
-__version__ = "2.3.1"
+__version__ = "2.3.1.post0"
