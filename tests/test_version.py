@@ -1,10 +1,10 @@
 """Tests for the package version."""
-import re
+from packaging.version import Version
 
 import rag_mcp
 
 
 def test_version_is_semver():
-    """__version__ is a non-empty semver-style string."""
+    """__version__ is a valid PEP 440 version."""
     assert isinstance(rag_mcp.__version__, str)
-    assert re.fullmatch(r"\d+\.\d+\.\d+(?:\.dev\d+(?:\+.*)?)?", rag_mcp.__version__)
+    Version(rag_mcp.__version__)
