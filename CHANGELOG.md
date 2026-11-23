@@ -7,9 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### _Chore_
+
+- Cleaned up imports with isort multiline config
+
 ## [2.3.1] - 2026-11-22
 
-### Added
+### _Added_
 
 - Cross-process write lock (filelock) serializing writes on one persist
   dir — losing startup/watch syncs skip and retry, manual tools raise a
