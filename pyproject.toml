@@ -33,6 +33,7 @@ classifiers = [
 
 [project.optional-dependencies]
 dev = [
+    "packaging",
     "pytest",
     "pytest-xdist",
     "pre-commit",
